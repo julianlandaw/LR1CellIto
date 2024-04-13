@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="Start your development with Steller landing page.">
+    <meta name="author" content="Devcrud">
+    <title>The LR1 Model</title>
+    <!-- font icons -->
+    <link rel="stylesheet" href="assets/vendors/themify-icons/css/themify-icons.css">
+    <!-- Bootstrap + Steller main styles -->
+	<link rel="stylesheet" href="assets/css/steller.css">
+    <!-- <style>body {background-image: url('assets/imgs/background.jpeg'); background-size: 100% 100%; background-repeat: no-repeat; background-attachment: fixed; background-position: center}</style> -->
+
+    <!-- Include Plotly library -->
+    <script src="assets/css/plotly.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        label, input {
+            margin-bottom: 10px;
+            display: block;
+        }
+    </style>
+    
+</head>
+<body>
+    <!-- Page navigation -->
+    <nav class="navbar navbar-expand-lg navbar-light fixed-top" data-spy="affix" data-offset-top="0">
+        <div class="container">
+            <a class="navbar-brand" href="#"><img src="assets/imgs/chaos.jpeg" alt=""></a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <ul class="navbar-nav ml-auto align-items-center">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#LR1CellIto">The LR1 Model</a>
+                    </li>
+                    
+                </ul>
+            </div>
+        </div>          
+    </nav>
+    <!-- End of page navigation -->
+
+    <section id="LR1CellIto" class="section mt-3">
+        <h1>The LR1 Model</h1>
+        <table>
+            <td>
+                <div id="myDiv1"></div> 
+                <script src="assets/js/LR1CellIto.js"></script>
+            </td>
+            <td width="40%">
+                <table align = "center">
+                    <td style="border:2px double black;">
+                        <table align="center">
+                            <tr>
+                                <td colspan="2"><center><u>Current Settings</u></center></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <i>I</i><sub>Na</sub> x
+                                </td>
+                                <td>
+                                    <input type='number' value='1.0' id='inafac' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <i>I</i><sub>to</sub> x
+                                </td>
+                                <td>
+                                    <input type='number' value='1.05' id='itofac' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <i>I</i><sub>SI</sub> x
+                                </td>
+                                <td>
+                                    <input type='number' value='1.15' id='icalfac' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <i>I</i><sub>Kr</sub> x
+                                </td>
+                                <td>
+                                    <input type='number' value='1.0' id='ikfac' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <i>I</i><sub>K1</sub> x
+                                </td>
+                                <td>
+                                    <input type='number' value='2.2' id='ikifac' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                    <td style="border:2px double black;">
+                        <table align="center">
+                            <tr>
+                                <td align="center" colspan="2"><u>Other Parameters</u></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <i>&tau;</i><sub>X</sub> x
+                                </td>
+                                <td>
+                                    <input type='number' value='5' id='tauXfac' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <i>y</i><sub>shift</sub>
+                                </td>
+                                <td>
+                                    <input type='number' value='8' id='yshift' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                    <td style="border:2px double black;">
+                        <table align="center">
+                            <tr>
+                                <td align="center" colspan="2"><u>Pacing Parameters</u></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    Beats:
+                                </td>
+                                <td>
+                                    <input type='number' value='5' id='beats' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    PCL:
+                                </td>
+                                <td>
+                                    <input type='number' value='500' id='pcl' style='width: 75px'></input>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                    <td style="border:2px double black;">
+                        <table align="center">
+                            <tr>
+                                <td><a class="btn btn-light rounded" onclick="reset()">Reset</a></td>
+                            </tr>
+                            <tr>
+                                <td><a class="btn btn-light rounded" onclick="unstable()">Unstable</a></td>
+                            </tr>
+                        </table>
+                    </td>
+                </table>
+            </td>
+        </table>
+        
+    <script src="assets/js/pacecell.js"></script>
+    </section>
+    <!-- Page Footer -->
+    <footer class="page-footer">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-sm-6">
+                    <p>Copyright <script>document.write(new Date().getFullYear())</script> &copy; Julian Landaw</p>
+                </div>
+                <!-- 
+                <div class="col-sm-6">
+                    <div class="socials">
+                        <a class="social-item" href="javascript:void(0)"><i class="ti-facebook"></i></a>
+                        <a class="social-item" href="javascript:void(0)"><i class="ti-google"></i></a>
+                        <a class="social-item" href="javascript:void(0)"><i class="ti-github"></i></a>
+                        <a class="social-item" href="javascript:void(0)"><i class="ti-twitter"></i></a>
+                    </div>
+                </div>
+                -->
+            </div>
+        </div>
+    </footer> 
+    <!-- End of page footer -->
+	
+	<!-- core  -->
+    <script src="assets/vendors/jquery/jquery-3.4.1.js"></script>
+    <script src="assets/vendors/bootstrap/bootstrap.bundle.js"></script>
+    <!-- bootstrap 3 affix -->
+	<script src="assets/vendors/bootstrap/bootstrap.affix.js"></script>
+
+    <!-- steller js -->
+    <script src="assets/js/steller.js"></script>
+</body>
+</html>
