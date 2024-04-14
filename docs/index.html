@@ -51,16 +51,12 @@
     <section id="LR1CellIto" class="section mt-3">
         <h1>The LR1 Model</h1>
         <table>
-            <td>
-                <div id="myDiv1"></div> 
-                <script src="assets/js/LR1CellIto.js"></script>
-            </td>
             <td width="40%">
                 <table align = "center">
                     <td style="border:2px double black;">
                         <table align="center">
                             <tr>
-                                <td colspan="2"><center><u>Current Settings</u></center></td>
+                                <td colspan="2"><center><u>Currents</u></center></td>
                             </tr>
                             <tr>
                                 <td>
@@ -153,14 +149,21 @@
                     <td style="border:2px double black;">
                         <table align="center">
                             <tr>
-                                <td><a class="btn btn-light rounded" onclick="reset()">Reset</a></td>
+                                <td align="center"><a class="btn btn-light rounded" onclick="pacecell()">RUN SIM</a></td>
                             </tr>
                             <tr>
-                                <td><a class="btn btn-light rounded" onclick="unstable()">Unstable</a></td>
+                                <td align="center"><a class="btn btn-light rounded" onclick="reset()">Reset</a></td>
+                            </tr>
+                            <tr>
+                                <td align="center"><a class="btn btn-light rounded" onclick="unstable()">Unstable</a></td>
                             </tr>
                         </table>
                     </td>
                 </table>
+            </td>
+            <td>
+                <div id="myDiv1"></div> 
+                <script src="assets/js/LR1CellIto.js"></script>
             </td>
         </table>
         

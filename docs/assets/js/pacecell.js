@@ -8,7 +8,8 @@ var ikfacnum = document.getElementById("ikfac"); //1.0
 var ikifacnum = document.getElementById("ikifac"); //2.2
 var yshiftnum = document.getElementById("yshift");
 
-unstable();
+reset();
+pacecell();
 
 function pacecell() {
     var Cell = new LR1CellIto();
@@ -177,7 +178,6 @@ function reset() {
     ikifacnum.value = 1;
     ikfacnum.value = 1;
     yshiftnum.value = 0;
-    pacecell();
 }
 
 function unstable() {
@@ -190,9 +190,9 @@ function unstable() {
     ikifacnum.value = 2.2;
     ikfacnum.value = 1;
     yshiftnum.value = 8.0;
-    pacecell();
 }
 
+/*
 inafacnum.addEventListener("change", function() {
     pacecell();
 });
@@ -228,3 +228,4 @@ ikfacnum.addEventListener("change", function() {
 yshiftnum.addEventListener("change", function() {
     pacecell();
 });
+*/
