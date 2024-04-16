@@ -8,11 +8,12 @@ var ikfacnum = document.getElementById("ikfac"); //1.0
 var ikifacnum = document.getElementById("ikifac"); //2.2
 var yshiftnum = document.getElementById("yshift");
 
+var Cell = new LR1CellIto();
+
 reset();
 pacecell();
 
 function pacecell() {
-    var Cell = new LR1CellIto();
     Cell.inafac = parseFloat(inafacnum.value);
     Cell.itofac = parseFloat(itofacnum.value);
     Cell.icalfac = parseFloat(icalfacnum.value);
