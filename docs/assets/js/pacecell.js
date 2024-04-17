@@ -214,7 +214,7 @@ function reset() {
 function chaos() {
     inafacnum.value = 1.0;
     itofacnum.value = 1.05;
-    pclnum.value = 378;
+    pclnum.value = 378; //507, 880
     beatsnum.value = 50;
     tauXfacnum.value = 5;
     icalfacnum.value = 1.15;

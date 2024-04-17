@@ -63,7 +63,7 @@
                                     <i>I</i><sub>Na</sub> x
                                 </td>
                                 <td>
-                                    <input type='number' value='1.0' id='inafac' style='width: 75px'></input>
+                                    <input type='number' value='1.0' id='inafac' style='width: 60px'></input>
                                 </td>
                             </tr>
                             <tr>
@@ -71,7 +71,7 @@
                                     <i>I</i><sub>to</sub> x
                                 </td>
                                 <td>
-                                    <input type='number' value='1.05' id='itofac' style='width: 75px'></input>
+                                    <input type='number' value='1.05' id='itofac' style='width: 60px'></input>
                                 </td>
                             </tr>
                             <tr>
@@ -79,7 +79,7 @@
                                     <i>I</i><sub>SI</sub> x
                                 </td>
                                 <td>
-                                    <input type='number' value='1.15' id='icalfac' style='width: 75px'></input>
+                                    <input type='number' value='1.15' id='icalfac' style='width: 60px'></input>
                                 </td>
                             </tr>
                             <tr>
@@ -87,7 +87,7 @@
                                     <i>I</i><sub>Kr</sub> x
                                 </td>
                                 <td>
-                                    <input type='number' value='1.0' id='ikfac' style='width: 75px'></input>
+                                    <input type='number' value='1.0' id='ikfac' style='width: 60px'></input>
                                 </td>
                             </tr>
                             <tr>
@@ -95,7 +95,7 @@
                                     <i>I</i><sub>K1</sub> x
                                 </td>
                                 <td>
-                                    <input type='number' value='2.2' id='ikifac' style='width: 75px'></input>
+                                    <input type='number' value='2.2' id='ikifac' style='width: 60px'></input>
                                 </td>
                             </tr>
                         </table>
@@ -110,7 +110,7 @@
                                     <i>&tau;</i><sub>X</sub> x
                                 </td>
                                 <td>
-                                    <input type='number' value='5' id='tauXfac' style='width: 75px'></input>
+                                    <input type='number' value='5' id='tauXfac' style='width: 60px'></input>
                                 </td>
                             </tr>
                             <tr>
@@ -118,7 +118,7 @@
                                     <i>y</i><sub>shift</sub>
                                 </td>
                                 <td>
-                                    <input type='number' value='8' id='yshift' style='width: 75px'></input>
+                                    <input type='number' value='8' id='yshift' style='width: 60px'></input>
                                 </td>
                             </tr>
                         </table>
@@ -133,7 +133,7 @@
                                     Beats:
                                 </td>
                                 <td>
-                                    <input type='number' value='5' id='beats' style='width: 75px'></input>
+                                    <input type='number' value='5' id='beats' style='width: 60px'></input>
                                 </td>
                             </tr>
                             <tr>
@@ -141,7 +141,7 @@
                                     PCL:
                                 </td>
                                 <td>
-                                    <input type='number' value='500' id='pcl' style='width: 75px'></input>
+                                    <input type='number' value='500' id='pcl' style='width: 60px'></input>
                                 </td>
                             </tr>
                         </table>
@@ -149,16 +149,14 @@
                     <td style="border:2px double black;">
                         <table align="center">
                             <tr>
-                                <td align="center"><a class="btn btn-light rounded" onclick="pacecell()">RUN SIM</a></td>
-                            </tr>
-                            <tr>
-                                <td align="center"><a class="btn btn-light rounded" onclick="reset()">Reset</a></td>
+                                <td align="center" colspan="2"><a class="btn btn-light rounded" onclick="pacecell()">PACE CELL</a></td>
                             </tr>
                             <tr>
                                 <td align="center"><a class="btn btn-light rounded" onclick="chaos()">Chaos</a></td>
+                                <td align="center"><a class="btn btn-light rounded" onclick="eads()">EADs</a></td>
                             </tr>
                             <tr>
-                                <td align="center"><a class="btn btn-light rounded" onclick="eads()">EADs</a></td>
+                                <td align="center" colspan="2"><a class="btn btn-light rounded" onclick="reset()">Reset</a></td>
                             </tr>
                         </table>
                     </td>
