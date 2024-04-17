@@ -223,6 +223,18 @@ function chaos() {
     yshiftnum.value = 8.0;
 }
 
+function eads() {
+    inafacnum.value = 1.0;
+    itofacnum.value = 0.0;
+    icalfacnum.value = 1.0;
+    ikfacnum.value = 1.0;
+    ikifacnum.value = 1.0;
+    tauXfacnum.value = 10.0;
+    yshiftnum.value = 0.0;
+    beatsnum.value = 10;
+    pclnum.value = 1575;
+}
+
 /*
 inafacnum.addEventListener("change", function() {
     pacecell();
