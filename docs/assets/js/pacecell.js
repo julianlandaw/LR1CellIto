@@ -193,6 +193,18 @@ function unstable() {
     yshiftnum.value = 8.0;
 }
 
+function chaos() {
+    inafacnum.value = 0.3;
+    itofacnum.value = 1.05;
+    icalfacnum.value = 1.15;
+    ikfacnum.value = 1.0;
+    ikifacnum.value = 2.2;
+    tauXfacnum.value = 5;
+    yshiftnum.value = 8.0;
+    beatsnum.value = 20;
+    pclnum.value = 657;
+}
+
 /*
 inafacnum.addEventListener("change", function() {
     pacecell();
