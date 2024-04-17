@@ -43,6 +43,7 @@ function pacecell() {
     let vs = [];
     let xs = [];
     let apds = [];
+    let xsinit = [];
     let apdcounter = [];
     let apdnum = 0;
     let t0 = 0;
@@ -60,6 +61,9 @@ function pacecell() {
     let minapd = 0;
     let maxapd = 0;
     let thisapd = 0;
+    let minX = 1;
+    let maxX = 0;
+    let thisX = 0;
     for (t = Cell.dt; t < pcl*beats; t = t + Cell.dt) {
         oldv = Cell.v
         if (t > nextstim - Cell.dt/2 & t < nextstim + Cell.stimduration - Cell.dt/2) {
@@ -71,6 +75,14 @@ function pacecell() {
         newv = Cell.v
         if (newv > Cell.threshold & oldv < Cell.threshold) {
             startapdtime = t;
+            thisX = Cell.xr;
+            xsinit.push(thisX);
+            if (thisX > maxX) {
+                maxX = thisX;
+            }
+            if (thisX < minX) {
+                minX = thisX;
+            }
         }
         if (newv < Cell.threshold & oldv > Cell.threshold & startapdtime > 1) {
             thisapd = t - startapdtime;
@@ -120,10 +132,20 @@ function pacecell() {
         x: apdcounter,
         y: apds,
         type: 'scatter',
-        mode: 'points',
+        mode: 'markers',
         xaxis: 'x3',
         yaxis: 'y3',
         name: 'APDs'
+    };
+
+    const trace4 = {
+        x: xsinit,
+        y: apds,
+        type: 'scatter',
+        mode: 'markers',
+        xaxis: 'x4',
+        yaxis: 'y4',
+        name: 'APD vs X'
     };
                 
     var layout1 = {
@@ -145,6 +167,10 @@ function pacecell() {
         xaxis3: {
             title: 'Beat Num'
         },
+        xaxis4: {
+            title: 'X',
+            range: [minX - 0.01, maxX + 0.01]
+        },
         yaxis: {
             title: 'Voltage (mV)'
         },
@@ -155,18 +181,22 @@ function pacecell() {
             title: 'APD (ms)',
             range: [minapd - 100, maxapd + 100]
         },
+        yaxis4: {
+            title: 'APD (ms)',
+            range: [minapd - 100, maxapd + 100]
+        },
         showlegend: false,
         grid: {
-            rows: 3,
+            rows: 4,
             columns: 1,
             pattern: 'independent',
             roworder: 'top to bottom',
-            ygap: 0.4
+            ygap: 0.5
         },
         height: 600
     };
         
-    Plotly.newPlot('myDiv1', [trace1, trace2, trace3], layout1);
+    Plotly.newPlot('myDiv1', [trace1, trace2, trace3, trace4], layout1);
 }
 
 function reset() {
@@ -181,28 +211,16 @@ function reset() {
     yshiftnum.value = 0;
 }
 
-function unstable() {
+function chaos() {
     inafacnum.value = 1.0;
     itofacnum.value = 1.05;
-    pclnum.value = 500;
-    beatsnum.value = 10;
+    pclnum.value = 507;
+    beatsnum.value = 50;
     tauXfacnum.value = 5;
     icalfacnum.value = 1.15;
     ikifacnum.value = 2.2;
     ikfacnum.value = 1;
     yshiftnum.value = 8.0;
-}
-
-function chaos() {
-    inafacnum.value = 0.3;
-    itofacnum.value = 1.05;
-    icalfacnum.value = 1.15;
-    ikfacnum.value = 1.0;
-    ikifacnum.value = 2.2;
-    tauXfacnum.value = 5;
-    yshiftnum.value = 8.0;
-    beatsnum.value = 20;
-    pclnum.value = 657;
 }
 
 /*
