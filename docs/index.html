@@ -1,204 +1,733 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <meta name="description" content="Start your development with Steller landing page.">
-    <meta name="author" content="Devcrud">
-    <title>The LR1 Model</title>
-    <!-- font icons -->
-    <link rel="stylesheet" href="assets/vendors/themify-icons/css/themify-icons.css">
-    <!-- Bootstrap + Steller main styles -->
-	<link rel="stylesheet" href="assets/css/steller.css">
-    <!-- <style>body {background-image: url('assets/imgs/background.jpeg'); background-size: 100% 100%; background-repeat: no-repeat; background-attachment: fixed; background-position: center}</style> -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive Luo-Rudy phase-1 cardiac cell simulator with pacing presets and APD analysis.">
+  <title>The LR1 Model</title>
 
-    <!-- Include Plotly library -->
-    <script src="assets/css/plotly.js"></script>
+  <!-- If your local Plotly file lives elsewhere, update this path. -->
+  <script src="assets/css/plotly.js"></script>
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-        label, input {
-            margin-bottom: 10px;
-            display: block;
-        }
-    </style>
-    
+  <style>
+    :root {
+      --bg: #f3f6fb;
+      --panel: #ffffff;
+      --panel-alt: #f8fafc;
+      --border: #dbe3ef;
+      --text: #0f172a;
+      --muted: #475569;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --secondary: #e2e8f0;
+      --secondary-hover: #cbd5e1;
+      --success: #047857;
+      --warning: #b45309;
+      --danger: #b91c1c;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      --radius: 18px;
+      --radius-sm: 12px;
+      --max-width: 1500px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 24%),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(10px);
+      background: rgba(243, 246, 251, 0.88);
+      border-bottom: 1px solid rgba(219, 227, 239, 0.9);
+    }
+
+    .site-header-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .brand-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+      flex: 0 0 auto;
+    }
+
+    .brand-copy h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      line-height: 1.2;
+    }
+
+    .brand-copy p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .header-note {
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: right;
+    }
+
+    .app-shell {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 28px 24px 32px;
+      display: grid;
+      grid-template-columns: minmax(320px, 390px) 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .panel-stack {
+      display: grid;
+      gap: 18px;
+      align-self: start;
+      position: sticky;
+      top: 92px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 18px 20px 0;
+    }
+
+    .card-header h2,
+    .card-header h3 {
+      margin: 0;
+      font-size: 1rem;
+      line-height: 1.2;
+    }
+
+    .card-header p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.4;
+    }
+
+    .card-body {
+      padding: 18px 20px 20px;
+    }
+
+    .control-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .control-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 108px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .control-row.compact {
+      grid-template-columns: minmax(0, 1fr) 92px;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.94rem;
+      line-height: 1.35;
+      color: var(--text);
+    }
+
+    .help-text {
+      display: block;
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      appearance: textfield;
+      border: 1px solid var(--border);
+      background: var(--panel-alt);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: 0.95rem;
+      color: var(--text);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    input[type="number"]:focus,
+    button:focus,
+    .toggle input:focus-visible + span {
+      outline: none;
+      border-color: rgba(37, 99, 235, 0.65);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+    }
+
+    .btn-row,
+    .preset-row,
+    .toolbar-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font-weight: 700;
+      font-size: 0.93rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.62;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 10px 24px rgba(37, 99, 235, 0.24);
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: var(--secondary);
+      color: var(--text);
+      border-color: transparent;
+    }
+
+    .btn-secondary:hover {
+      background: var(--secondary-hover);
+    }
+
+    .btn-ghost {
+      background: white;
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    .btn-ghost:hover {
+      background: var(--panel-alt);
+    }
+
+    .btn-pill-active {
+      background: rgba(37, 99, 235, 0.1);
+      color: var(--primary);
+      border-color: rgba(37, 99, 235, 0.25);
+    }
+
+    .toggle-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .toggle input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .toggle span {
+      width: 48px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: #cbd5e1;
+      position: relative;
+      transition: background 0.2s ease;
+      flex: 0 0 auto;
+      border: 1px solid transparent;
+    }
+
+    .toggle span::after {
+      content: "";
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: white;
+      position: absolute;
+      left: 2px;
+      transition: transform 0.2s ease;
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+    }
+
+    .toggle input:checked + span {
+      background: rgba(37, 99, 235, 0.8);
+    }
+
+    .toggle input:checked + span::after {
+      transform: translateX(20px);
+    }
+
+    .status {
+      margin-top: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 24px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #94a3b8;
+      box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+      flex: 0 0 auto;
+    }
+
+    .status.running .status-dot {
+      background: var(--warning);
+      box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.14);
+      animation: pulse 1.2s infinite ease-in-out;
+    }
+
+    .status.ready .status-dot {
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(4, 120, 87, 0.15);
+    }
+
+    .status.error .status-dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 4px rgba(185, 28, 28, 0.15);
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.75; }
+    }
+
+    .plot-column {
+      display: grid;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .hero-card {
+      padding: 24px;
+      background: linear-gradient(135deg, rgba(37, 99, 235, 0.98), rgba(124, 58, 237, 0.92));
+      color: white;
+      position: relative;
+      isolation: isolate;
+    }
+
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      inset: auto -10% -30% auto;
+      width: 240px;
+      height: 240px;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.16), transparent 72%);
+      border-radius: 50%;
+      z-index: -1;
+    }
+
+    .hero-card h2 {
+      margin: 0;
+      font-size: clamp(1.45rem, 1.8vw, 1.9rem);
+      line-height: 1.15;
+    }
+
+    .hero-card p {
+      margin: 10px 0 0;
+      max-width: 70ch;
+      font-size: 0.98rem;
+      line-height: 1.55;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .metric-card {
+      padding: 16px 18px;
+      background: white;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+
+    .metric-label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+
+    .metric-subtext {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .plot-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .plot-toolbar p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.93rem;
+    }
+
+    #myDiv1 {
+      width: 100%;
+      min-height: 780px;
+    }
+
+    .footer {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 24px 28px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 1220px) {
+      .metrics-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 1050px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .panel-stack {
+        position: static;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .site-header-inner,
+      .app-shell,
+      .footer {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .site-header-inner {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .header-note {
+        text-align: left;
+      }
+
+      .metrics-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .control-row,
+      .control-row.compact {
+        grid-template-columns: 1fr;
+      }
+
+      #myDiv1 {
+        min-height: 660px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .card-body,
+      .card-header,
+      .hero-card {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+    }
+  </style>
 </head>
 <body>
-    <!-- Page navigation -->
-    <nav class="navbar navbar-expand-lg navbar-light fixed-top" data-spy="affix" data-offset-top="0">
-        <div class="container">
-            <a class="navbar-brand" href="#"><img src="assets/imgs/chaos.jpeg" alt=""></a>
-            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-
-            <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                <ul class="navbar-nav ml-auto align-items-center">
-                    <li class="nav-item">
-                        <a class="nav-link" href="#LR1CellIto">The LR1 Model</a>
-                    </li>
-                    
-                </ul>
-            </div>
-        </div>          
-    </nav>
-    <!-- End of page navigation -->
-
-    <section id="LR1CellIto" class="section mt-3">
-        <h1>The LR1 Model</h1>
-        <table>
-            <td width="40%">
-                <table align = "center">
-                    <td style="border:2px double black;">
-                        <table align="center">
-                            <tr>
-                                <td colspan="2"><center><u>Currents</u></center></td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <i>I</i><sub>Na</sub> x
-                                </td>
-                                <td>
-                                    <input type='number' value='1.0' id='inafac' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <i>I</i><sub>to</sub> x
-                                </td>
-                                <td>
-                                    <input type='number' value='1.05' id='itofac' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <i>I</i><sub>SI</sub> x
-                                </td>
-                                <td>
-                                    <input type='number' value='1.15' id='icalfac' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <i>I</i><sub>Kr</sub> x
-                                </td>
-                                <td>
-                                    <input type='number' value='1.0' id='ikfac' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <i>I</i><sub>K1</sub> x
-                                </td>
-                                <td>
-                                    <input type='number' value='2.2' id='ikifac' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                        </table>
-                    </td>
-                    <td style="border:2px double black;">
-                        <table align="center">
-                            <tr>
-                                <td align="center" colspan="2"><u>Other Parameters</u></td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <i>&tau;</i><sub>X</sub> x
-                                </td>
-                                <td>
-                                    <input type='number' value='5' id='tauXfac' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <i>y</i><sub>shift</sub>
-                                </td>
-                                <td>
-                                    <input type='number' value='8' id='yshift' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                        </table>
-                    </td>
-                    <td style="border:2px double black;">
-                        <table align="center">
-                            <tr>
-                                <td align="center" colspan="2"><u>Pacing Parameters</u></td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    Beats:
-                                </td>
-                                <td>
-                                    <input type='number' value='5' id='beats' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    Pacing Cycle (ms):
-                                </td>
-                                <td>
-                                    <input type='number' value='500' id='pcl' style='width: 60px'></input>
-                                </td>
-                            </tr>
-                        </table>
-                    </td>
-                    <td style="border:2px double black;">
-                        <table align="center">
-                            <tr>
-                                <td align="center" colspan="2"><a class="btn btn-light rounded" onclick="pacecell()">PACE CELL</a></td>
-                            </tr>
-                            <tr>
-                                <td align="center"><a class="btn btn-light rounded" onclick="chaos()">Chaos</a></td>
-                                <td align="center"><a class="btn btn-light rounded" onclick="eads()">EADs</a></td>
-                            </tr>
-                            <tr>
-                                <td align="center" colspan="2"><a class="btn btn-light rounded" onclick="reset()">Reset</a></td>
-                            </tr>
-                        </table>
-                    </td>
-                </table>
-            </td>
-            <td>
-                <div id="myDiv1"></div> 
-                <script src="assets/js/LR1CellIto.js"></script>
-            </td>
-        </table>
-        
-    <script src="assets/js/pacecell.js"></script>
-    </section>
-    <!-- Page Footer -->
-    <footer class="page-footer">
-        <div class="container">
-            <div class="row align-items-center">
-                <div class="col-sm-6">
-                    <p>Copyright <script>document.write(new Date().getFullYear())</script> &copy; Julian Landaw</p>
-                </div>
-                <!-- 
-                <div class="col-sm-6">
-                    <div class="socials">
-                        <a class="social-item" href="javascript:void(0)"><i class="ti-facebook"></i></a>
-                        <a class="social-item" href="javascript:void(0)"><i class="ti-google"></i></a>
-                        <a class="social-item" href="javascript:void(0)"><i class="ti-github"></i></a>
-                        <a class="social-item" href="javascript:void(0)"><i class="ti-twitter"></i></a>
-                    </div>
-                </div>
-                -->
-            </div>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="brand" aria-label="LR1 model simulator">
+        <div class="brand-badge" aria-hidden="true">LR1</div>
+        <div class="brand-copy">
+          <h1>The LR1 Model</h1>
+          <p>Interactive pacing, restitution, and APD dynamics explorer</p>
         </div>
-    </footer> 
-    <!-- End of page footer -->
-	
-	<!-- core  -->
-    <script src="assets/vendors/jquery/jquery-3.4.1.js"></script>
-    <script src="assets/vendors/bootstrap/bootstrap.bundle.js"></script>
-    <!-- bootstrap 3 affix -->
-	<script src="assets/vendors/bootstrap/bootstrap.affix.js"></script>
+      </div>
+      <div class="header-note">Luo-Rudy phase-1 ventricular cell simulation with preset scenarios and responsive plots</div>
+    </div>
+  </header>
 
-    <!-- steller js -->
-    <script src="assets/js/steller.js"></script>
+  <main class="app-shell">
+    <aside class="panel-stack" aria-label="Simulation controls">
+      <section class="card">
+        <div class="card-header">
+          <h2>Presets</h2>
+          <p>Start from a known scenario, then fine-tune conductance multipliers and pacing parameters.</p>
+        </div>
+        <div class="card-body">
+          <div class="preset-row">
+            <button id="presetDefaultBtn" class="btn-secondary btn-pill-active" type="button">Default</button>
+            <button id="presetChaosBtn" class="btn-ghost" type="button">Chaos</button>
+            <button id="presetEadsBtn" class="btn-ghost" type="button">EADs</button>
+          </div>
+          <div class="toggle-wrap">
+            <div>
+              <div style="font-weight: 700;">Auto-update</div>
+              <div class="help-text">Re-run automatically after edits (debounced for smoother interaction).</div>
+            </div>
+            <label class="toggle" for="autoUpdate">
+              <input id="autoUpdate" type="checkbox">
+              <span aria-hidden="true"></span>
+              <span class="sr-only">Toggle auto update</span>
+            </label>
+          </div>
+          <div id="statusIndicator" class="status ready" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="statusText">Ready to simulate</span>
+          </div>
+        </div>
+      </section>
+
+      <form id="controlsForm" class="panel-stack" novalidate>
+        <section class="card">
+          <div class="card-header">
+            <h3>Currents</h3>
+            <p>Set multiplicative scaling factors for each current.</p>
+          </div>
+          <div class="card-body">
+            <div class="control-grid">
+              <div class="control-row">
+                <label for="inafac">I<sub>Na</sub> multiplier<span class="help-text">Fast sodium current scaling</span></label>
+                <input type="number" id="inafac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+              </div>
+              <div class="control-row">
+                <label for="itofac">I<sub>to</sub> multiplier<span class="help-text">Transient outward current scaling</span></label>
+                <input type="number" id="itofac" min="0" max="5" step="0.05" value="0.00" inputmode="decimal">
+              </div>
+              <div class="control-row">
+                <label for="icalfac">I<sub>Ca,L</sub> multiplier<span class="help-text">Slow inward calcium current scaling</span></label>
+                <input type="number" id="icalfac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+              </div>
+              <div class="control-row">
+                <label for="ikfac">I<sub>Kr</sub> multiplier<span class="help-text">Rapid delayed rectifier scaling</span></label>
+                <input type="number" id="ikfac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+              </div>
+              <div class="control-row">
+                <label for="ikifac">I<sub>K1</sub> multiplier<span class="help-text">Inward rectifier scaling</span></label>
+                <input type="number" id="ikifac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h3>Other Parameters</h3>
+            <p>Adjust kinetics and shifts that influence restitution and instability.</p>
+          </div>
+          <div class="card-body">
+            <div class="control-grid">
+              <div class="control-row compact">
+                <label for="tauXfac">&tau;<sub>X</sub> scaling<span class="help-text">Scales the X gate time constant</span></label>
+                <input type="number" id="tauXfac" min="0.1" max="25" step="0.1" value="1.00" inputmode="decimal">
+              </div>
+              <div class="control-row compact">
+                <label for="yshift">y shift<span class="help-text">Shifts I<sub>to</sub> recovery/inactivation kinetics</span></label>
+                <input type="number" id="yshift" min="-40" max="40" step="0.5" value="0.00" inputmode="decimal">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h3>Pacing</h3>
+            <p>Set the number of paced beats and pacing cycle length.</p>
+          </div>
+          <div class="card-body">
+            <div class="control-grid">
+              <div class="control-row compact">
+                <label for="beats">Beats<span class="help-text">Total number of paced beats to simulate</span></label>
+                <input type="number" id="beats" min="1" max="250" step="1" value="10" inputmode="numeric">
+              </div>
+              <div class="control-row compact">
+                <label for="pcl">PCL (ms)<span class="help-text">Pacing cycle length in milliseconds</span></label>
+                <input type="number" id="pcl" min="50" max="5000" step="1" value="500" inputmode="numeric">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h3>Actions</h3>
+            <p>Run the simulation, reset to defaults, or export the current plot.</p>
+          </div>
+          <div class="card-body">
+            <div class="btn-row">
+              <button id="runBtn" class="btn-primary" type="submit">Run simulation</button>
+              <button id="resetBtn" class="btn-secondary" type="button">Reset values</button>
+              <button id="exportBtn" class="btn-ghost" type="button">Download plot</button>
+            </div>
+          </div>
+        </section>
+      </form>
+    </aside>
+
+    <section class="plot-column" aria-label="Simulation results">
+      <section class="card hero-card">
+        <h2>Explore AP morphology, restitution, and beat-to-beat dynamics</h2>
+        <p>Use presets for <strong>Chaos</strong> or <strong>EADs</strong>, or tailor current multipliers manually. Summary tiles update after each run, and the Plotly figure includes zoom, pan, and built-in export tools.</p>
+      </section>
+
+      <section class="metrics-grid" aria-label="Simulation summary metrics">
+        <article class="metric-card">
+          <span class="metric-label">APD min</span>
+          <div id="metricApdMin" class="metric-value">—</div>
+          <div class="metric-subtext">Shortest detected APD</div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">APD max</span>
+          <div id="metricApdMax" class="metric-value">—</div>
+          <div class="metric-subtext">Longest detected APD</div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">APD range</span>
+          <div id="metricApdRange" class="metric-value">—</div>
+          <div class="metric-subtext">Max minus min APD</div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Detected beats</span>
+          <div id="metricBeatCount" class="metric-value">—</div>
+          <div class="metric-subtext">APDs crossing threshold</div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Preset</span>
+          <div id="metricPreset" class="metric-value">Default</div>
+          <div id="metricPresetNote" class="metric-subtext">Current starting configuration</div>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="card-body">
+          <div class="plot-toolbar">
+            <div>
+              <h3 style="margin:0; font-size:1.02rem;">Simulation plots</h3>
+              <p>Action potential, X gate trajectory, APD by beat, and APD versus initial X.</p>
+            </div>
+          </div>
+          <div id="myDiv1"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Copyright <span id="year"></span> © Julian Landaw. Replace the Plotly script path in the head section if your local plotly.js file lives elsewhere.</p>
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+  <script src="assets/js/LR1CellIto.js"></script>
+  <script src="assets/js/pacecell.js"></script>
 </body>
 </html>

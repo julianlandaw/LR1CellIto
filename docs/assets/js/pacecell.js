@@ -1,274 +1,659 @@
-var inafacnum = document.getElementById("inafac");
-var itofacnum = document.getElementById("itofac");
-var pclnum = document.getElementById("pcl");
-var beatsnum = document.getElementById("beats");
-var tauXfacnum = document.getElementById("tauXfac"); //5
-var icalfacnum = document.getElementById("icalfac"); //1.15
-var ikfacnum = document.getElementById("ikfac"); //1.0
-var ikifacnum = document.getElementById("ikifac"); //2.2
-var yshiftnum = document.getElementById("yshift");
+(function () {
+  'use strict';
 
-var Cell = new LR1CellIto();
+  const DEFAULTS = {
+    inafac: 1.0,
+    itofac: 0.0,
+    icalfac: 1.0,
+    ikfac: 1.0,
+    ikifac: 1.0,
+    tauXfac: 1.0,
+    yshift: 0.0,
+    beats: 10,
+    pcl: 500,
+  };
 
-reset();
-pacecell();
+  const PRESETS = {
+    default: { ...DEFAULTS },
+    chaos: {
+      inafac: 1.0,
+      itofac: 1.05,
+      pcl: 378,
+      beats: 50,
+      tauXfac: 5.0,
+      icalfac: 1.15,
+      ikifac: 2.2,
+      ikfac: 1.0,
+      yshift: 8.0,
+    },
+    eads: {
+      inafac: 1.0,
+      itofac: 0.0,
+      icalfac: 1.0,
+      ikfac: 1.0,
+      ikifac: 1.0,
+      tauXfac: 10.0,
+      yshift: 0.0,
+      beats: 15,
+      pcl: 1575,
+    },
+  };
 
-function pacecell() {
-    Cell.inafac = parseFloat(inafacnum.value);
-    Cell.itofac = parseFloat(itofacnum.value);
-    Cell.icalfac = parseFloat(icalfacnum.value);
-    Cell.ikifac = parseFloat(ikifacnum.value);
-    Cell.ikfac = parseFloat(ikfacnum.value);
-    Cell.tauXfac = parseFloat(tauXfacnum.value);
-    Cell.yshift = parseFloat(yshiftnum.value);
-    let pcl = parseFloat(pclnum.value);
-    let beats = parseFloat(beatsnum.value);
-    for (let i = 0; i < Math.ceil(10000/Cell.dt); i++) {
-        Cell.stepdt(0);
-    }
-    let t = 0;
-    let nextstim = 100;
-    for (t = Cell.dt; t < pcl*10; t = t + Cell.dt) {
-        if (t > nextstim - Cell.dt/2 & t < nextstim + Cell.stimduration - Cell.dt/2) {
-            Cell.stepdt(Cell.stimulus);
-        }
-        else {
-            Cell.stepdt(0);
-        }
-        if (t > nextstim + Cell.stimduration + Cell.dt/2) {
-            nextstim = nextstim + pcl;
-        }
-    }
-    let ts = [];
-    let vs = [];
-    let xs = [];
-    let apds = [];
-    let xsinit = [];
-    let apdcounter = [];
-    let apdnum = 0;
-    let t0 = 0;
-    let v0 = Cell.v;
-    let x0 = Cell.xr;
-    t = t0;
-    ts.push(t0);
-    vs.push(v0);
-    xs.push(x0);
-    nextstim = 100;
-    let tsave = 5;
-    let oldv = v0;
-    let newv = v0;
-    let startapdtime = 0;
-    let minapd = 0;
-    let maxapd = 0;
-    let thisapd = 0;
-    let minX = 1;
-    let maxX = 0;
-    let thisX = 0;
-    for (t = Cell.dt; t < pcl*beats; t = t + Cell.dt) {
-        oldv = Cell.v
-        if (t > nextstim - Cell.dt/2 & t < nextstim + Cell.stimduration - Cell.dt/2) {
-            Cell.stepdt(Cell.stimulus);
-        }
-        else {
-            Cell.stepdt(0);
-        }
-        newv = Cell.v
-        if (newv > Cell.threshold & oldv < Cell.threshold) {
-            startapdtime = t;
-            thisX = Cell.xr;
-            xsinit.push(thisX);
-            if (thisX > maxX) {
-                maxX = thisX;
-            }
-            if (thisX < minX) {
-                minX = thisX;
-            }
-        }
-        if (newv < Cell.threshold & oldv > Cell.threshold & startapdtime > 1) {
-            thisapd = t - startapdtime;
-            apds.push(thisapd);
-            apdnum = apdnum + 1;
-            apdcounter.push(apdnum);
-            if (apdnum == 1) {
-                minapd = thisapd;
-                maxapd = thisapd;
-            }
-            if (thisapd < minapd) {
-                minapd = thisapd;
-            }
-            if (thisapd > maxapd) {
-                maxapd = thisapd;
-            }
-        }
-        if (t > nextstim + Cell.stimduration + Cell.dt/2) {
-            nextstim = nextstim + pcl;
-        }
-        if (t > tsave - Cell.dt/2) {
-            ts.push(t/1000);
-            vs.push(Cell.v);
-            xs.push(Cell.xr);
-            tsave = tsave + 5;
-        }
-    }
-    const trace1 = {
-        x: ts,
-        y: vs,
-        type: 'scatter',
-        mode: 'lines',
-        name: 'Action Potential'
+  const INPUT_IDS = ['inafac', 'itofac', 'icalfac', 'ikfac', 'ikifac', 'tauXfac', 'yshift', 'beats', 'pcl'];
+  const SAMPLE_INTERVAL_MS = 5;
+  const WARMUP_MS = 10000;
+  const AUTO_UPDATE_DEBOUNCE_MS = 450;
+
+  let ui = {};
+  let currentPreset = 'default';
+  let isRunning = false;
+  let pendingRun = false;
+  let debouncedTimer = null;
+  let lastResult = null;
+
+  function init() {
+    ui = {
+      form: document.getElementById('controlsForm'),
+      plot: document.getElementById('myDiv1'),
+      status: document.getElementById('statusIndicator'),
+      statusText: document.getElementById('statusText'),
+      autoUpdate: document.getElementById('autoUpdate'),
+      runBtn: document.getElementById('runBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      exportBtn: document.getElementById('exportBtn'),
+      presetButtons: {
+        default: document.getElementById('presetDefaultBtn'),
+        chaos: document.getElementById('presetChaosBtn'),
+        eads: document.getElementById('presetEadsBtn'),
+      },
+      metrics: {
+        apdMin: document.getElementById('metricApdMin'),
+        apdMax: document.getElementById('metricApdMax'),
+        apdRange: document.getElementById('metricApdRange'),
+        beatCount: document.getElementById('metricBeatCount'),
+        preset: document.getElementById('metricPreset'),
+        presetNote: document.getElementById('metricPresetNote'),
+      },
+      inputs: {},
     };
 
-    const trace2 = {
-        x: ts,
-        y: xs,
-        xlabel: 'Time',
+    INPUT_IDS.forEach((id) => {
+      ui.inputs[id] = document.getElementById(id);
+    });
+
+    setFormValues(DEFAULTS);
+    setActivePreset('default');
+    bindEvents();
+    setStatus('ready', 'Ready to simulate');
+    startSimulation();
+  }
+
+  function bindEvents() {
+    ui.form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      queueRun(true);
+    });
+
+    ui.resetBtn.addEventListener('click', () => {
+      setFormValues(DEFAULTS);
+      setActivePreset('default');
+      queueRun(true);
+    });
+
+    ui.exportBtn.addEventListener('click', exportPlotImage);
+
+    Object.entries(ui.presetButtons).forEach(([presetName, button]) => {
+      button.addEventListener('click', () => {
+        applyPreset(presetName);
+      });
+    });
+
+    INPUT_IDS.forEach((id) => {
+      const input = ui.inputs[id];
+      ['input', 'change'].forEach((eventName) => {
+        input.addEventListener(eventName, handleInputChange);
+      });
+    });
+
+    window.addEventListener('resize', debounce(() => {
+      if (ui.plot && window.Plotly && ui.plot.data) {
+        Plotly.Plots.resize(ui.plot);
+      }
+    }, 150));
+  }
+
+  function handleInputChange() {
+    detectPresetFromCurrentValues();
+
+    if (ui.autoUpdate.checked) {
+      queueRun();
+    } else {
+      setStatus('ready', 'Parameter updated. Click “Run simulation” to refresh plots.');
+    }
+  }
+
+  function queueRun(immediate = false) {
+    if (debouncedTimer) {
+      clearTimeout(debouncedTimer);
+      debouncedTimer = null;
+    }
+
+    if (immediate) {
+      startSimulation();
+      return;
+    }
+
+    debouncedTimer = setTimeout(() => {
+      startSimulation();
+    }, AUTO_UPDATE_DEBOUNCE_MS);
+  }
+
+  function startSimulation() {
+    if (isRunning) {
+      pendingRun = true;
+      return;
+    }
+
+    isRunning = true;
+    updateRunningState(true);
+    setStatus('running', 'Running simulation…');
+
+    window.requestAnimationFrame(() => {
+      try {
+        const inputValues = getInputValues();
+        validateInputs(inputValues);
+
+        const result = runSimulation(inputValues);
+        lastResult = result;
+        renderMetrics(result.metrics);
+        renderPlots(result);
+
+        setStatus('ready', `Simulation complete in ${result.runtimeMs.toFixed(0)} ms.`);
+      } catch (error) {
+        console.error(error);
+        setStatus('error', error && error.message ? error.message : 'Simulation failed.');
+      } finally {
+        isRunning = false;
+        updateRunningState(false);
+
+        if (pendingRun) {
+          pendingRun = false;
+          startSimulation();
+        }
+      }
+    });
+  }
+
+  function runSimulation(inputValues) {
+    if (typeof LR1CellIto !== 'function') {
+      throw new Error('LR1CellIto.js is not loaded. Check the script path near the bottom of index.html.');
+    }
+
+    if (typeof Plotly === 'undefined') {
+      throw new Error('Plotly is not loaded. Update the local Plotly script path in index.html.');
+    }
+
+    const startedAt = performance.now();
+    const cell = new LR1CellIto();
+
+    cell.inafac = inputValues.inafac;
+    cell.itofac = inputValues.itofac;
+    cell.icalfac = inputValues.icalfac;
+    cell.ikfac = inputValues.ikfac;
+    cell.ikifac = inputValues.ikifac;
+    cell.tauXfac = inputValues.tauXfac;
+    cell.yshift = inputValues.yshift;
+
+    const warmupSteps = Math.ceil(WARMUP_MS / cell.dt);
+    for (let i = 0; i < warmupSteps; i += 1) {
+      cell.stepdt(0);
+    }
+
+    let t = 0;
+    let nextStim = 100;
+
+    for (t = cell.dt; t < inputValues.pcl * 10; t += cell.dt) {
+      if (t > nextStim - cell.dt / 2 && t < nextStim + cell.stimduration - cell.dt / 2) {
+        cell.stepdt(cell.stimulus);
+      } else {
+        cell.stepdt(0);
+      }
+
+      if (t > nextStim + cell.stimduration + cell.dt / 2) {
+        nextStim += inputValues.pcl;
+      }
+    }
+
+    const ts = [0];
+    const vs = [cell.v];
+    const xs = [cell.xr];
+    const apds = [];
+    const xsInit = [];
+    const apdCounter = [];
+
+    let oldV = cell.v;
+    let newV = cell.v;
+    let startApdTime = null;
+    let minApd = Infinity;
+    let maxApd = -Infinity;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let lastSampleTime = SAMPLE_INTERVAL_MS;
+    nextStim = 100;
+
+    for (t = cell.dt; t < inputValues.pcl * inputValues.beats; t += cell.dt) {
+      oldV = cell.v;
+
+      if (t > nextStim - cell.dt / 2 && t < nextStim + cell.stimduration - cell.dt / 2) {
+        cell.stepdt(cell.stimulus);
+      } else {
+        cell.stepdt(0);
+      }
+
+      newV = cell.v;
+
+      if (newV > cell.threshold && oldV < cell.threshold) {
+        startApdTime = t;
+        xsInit.push(cell.xr);
+        minX = Math.min(minX, cell.xr);
+        maxX = Math.max(maxX, cell.xr);
+      }
+
+      if (newV < cell.threshold && oldV > cell.threshold && startApdTime !== null) {
+        const thisApd = t - startApdTime;
+        apds.push(thisApd);
+        apdCounter.push(apds.length);
+        minApd = Math.min(minApd, thisApd);
+        maxApd = Math.max(maxApd, thisApd);
+        startApdTime = null;
+      }
+
+      if (t > nextStim + cell.stimduration + cell.dt / 2) {
+        nextStim += inputValues.pcl;
+      }
+
+      if (t >= lastSampleTime - cell.dt / 2) {
+        ts.push(t / 1000);
+        vs.push(cell.v);
+        xs.push(cell.xr);
+        lastSampleTime += SAMPLE_INTERVAL_MS;
+      }
+    }
+
+    if (!Number.isFinite(minApd)) {
+      minApd = NaN;
+      maxApd = NaN;
+    }
+
+    if (!Number.isFinite(minX)) {
+      minX = NaN;
+      maxX = NaN;
+    }
+
+    const apdRange = Number.isFinite(minApd) && Number.isFinite(maxApd) ? maxApd - minApd : NaN;
+
+    return {
+      ts,
+      vs,
+      xs,
+      apds,
+      xsInit,
+      apdCounter,
+      runtimeMs: performance.now() - startedAt,
+      inputs: inputValues,
+      metrics: {
+        minApd,
+        maxApd,
+        apdRange,
+        beatCount: apds.length,
+        minX,
+        maxX,
+        preset: currentPreset,
+      },
+    };
+  }
+
+  function renderPlots(result) {
+    const yRange = computeApdRange(result.apds);
+    const xScatterRange = computeXScatterRange(result.metrics.minX, result.metrics.maxX);
+
+    const traces = [
+      {
+        x: result.ts,
+        y: result.vs,
         type: 'scatter',
         mode: 'lines',
+        name: 'Action potential',
+        line: { color: '#2563eb', width: 2.25 },
+        hovertemplate: 'Time: %{x:.3f} s<br>Voltage: %{y:.2f} mV<extra></extra>',
+      },
+      {
+        x: result.ts,
+        y: result.xs,
+        type: 'scatter',
+        mode: 'lines',
+        name: 'X gate',
         xaxis: 'x2',
         yaxis: 'y2',
-        name: 'X'
-    };
-    const trace3 = {
-        x: apdcounter,
-        y: apds,
+        line: { color: '#7c3aed', width: 2.0 },
+        hovertemplate: 'Time: %{x:.3f} s<br>X: %{y:.4f}<extra></extra>',
+      },
+      {
+        x: result.apdCounter,
+        y: result.apds,
         type: 'scatter',
-        mode: 'markers',
+        mode: 'markers+lines',
+        name: 'APD by beat',
         xaxis: 'x3',
         yaxis: 'y3',
-        name: 'APDs'
-    };
-
-    const trace4 = {
-        x: xsinit,
-        y: apds,
+        marker: { color: '#dc2626', size: 7 },
+        line: { color: '#fca5a5', width: 1.5 },
+        hovertemplate: 'Beat: %{x}<br>APD: %{y:.2f} ms<extra></extra>',
+      },
+      {
+        x: result.xsInit,
+        y: result.apds,
         type: 'scatter',
         mode: 'markers',
+        name: 'APD vs initial X',
         xaxis: 'x4',
         yaxis: 'y4',
-        name: 'APD vs X'
+        marker: { color: '#059669', size: 7, opacity: 0.85 },
+        hovertemplate: 'Initial X: %{x:.4f}<br>APD: %{y:.2f} ms<extra></extra>',
+      },
+    ];
+
+    const layout = {
+      title: {
+        text: 'LR1 simulation output',
+        font: { size: 22 },
+        x: 0.02,
+        xanchor: 'left',
+      },
+      paper_bgcolor: '#ffffff',
+      plot_bgcolor: '#fbfdff',
+      margin: { l: 64, r: 24, t: 58, b: 48 },
+      showlegend: false,
+      height: 820,
+      grid: {
+        rows: 4,
+        columns: 1,
+        pattern: 'independent',
+        roworder: 'top to bottom',
+        ygap: 0.08,
+      },
+      xaxis: {
+        title: 'Time (s)',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+      },
+      yaxis: {
+        title: 'Voltage (mV)',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+      },
+      xaxis2: {
+        title: 'Time (s)',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+      },
+      yaxis2: {
+        title: 'X',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+      },
+      xaxis3: {
+        title: 'Beat number',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+      },
+      yaxis3: {
+        title: 'APD (ms)',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+        range: yRange,
+      },
+      xaxis4: {
+        title: 'Initial X',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+        range: xScatterRange,
+      },
+      yaxis4: {
+        title: 'APD (ms)',
+        showgrid: true,
+        gridcolor: '#e2e8f0',
+        zeroline: false,
+        range: yRange,
+      },
+      annotations: [
+        {
+          text: `Preset: ${formatPresetName(currentPreset)} · PCL: ${formatNumber(result.inputs.pcl, 0)} ms · Beats: ${formatNumber(result.inputs.beats, 0)}`,
+          xref: 'paper',
+          yref: 'paper',
+          x: 1,
+          y: 1.08,
+          xanchor: 'right',
+          showarrow: false,
+          font: { color: '#475569', size: 12 },
+        },
+      ],
     };
-                
-    var layout1 = {
-        title: {
-            text:'The LR1 Model',
-            font: {
-                family: 'Courier New, monospace',
-                size: 24
-            },
-            //xref: 'paper',
-            //x: 0.05,
-        },
-        xaxis: {
-            title: 'Time (s)'
-        },
-        xaxis2: {
-            title: 'Time (s)'
-        },
-        xaxis3: {
-            title: 'Beat Num'
-        },
-        xaxis4: {
-            title: 'X',
-            range: [minX - 0.01, maxX + 0.01]
-        },
-        yaxis: {
-            title: 'Voltage (mV)'
-        },
-        yaxis2: {
-            title: 'X'
-        },
-        yaxis3: {
-            title: 'APD (ms)',
-            range: [minapd - 100, maxapd + 100]
-        },
-        yaxis4: {
-            title: 'APD (ms)',
-            range: [minapd - 100, maxapd + 100]
-        },
-        showlegend: false,
-        grid: {
-            rows: 4,
-            columns: 1,
-            pattern: 'independent',
-            roworder: 'top to bottom',
-            ygap: 0.5
-        },
-        height: 600
+
+    const config = {
+      responsive: true,
+      displaylogo: false,
+      toImageButtonOptions: {
+        format: 'png',
+        filename: 'lr1-simulation',
+        scale: 2,
+      },
     };
-        
-    Plotly.newPlot('myDiv1', [trace1, trace2, trace3, trace4], layout1);
-}
 
-function reset() {
-    inafacnum.value = 1.0;
-    itofacnum.value = 0;
-    pclnum.value = 500;
-    beatsnum.value = 10;
-    tauXfacnum.value = 1;
-    icalfacnum.value = 1;
-    ikifacnum.value = 1;
-    ikfacnum.value = 1;
-    yshiftnum.value = 0;
-}
+    if (ui.plot && ui.plot.data) {
+      Plotly.react(ui.plot, traces, layout, config);
+    } else {
+      Plotly.newPlot(ui.plot, traces, layout, config);
+    }
+  }
 
-function chaos() {
-    inafacnum.value = 1.0;
-    itofacnum.value = 1.05;
-    pclnum.value = 378; //507, 880
-    beatsnum.value = 50;
-    tauXfacnum.value = 5;
-    icalfacnum.value = 1.15;
-    ikifacnum.value = 2.2;
-    ikfacnum.value = 1;
-    yshiftnum.value = 8.0;
-}
+  function renderMetrics(metrics) {
+    ui.metrics.apdMin.textContent = formatMetric(metrics.minApd, ' ms');
+    ui.metrics.apdMax.textContent = formatMetric(metrics.maxApd, ' ms');
+    ui.metrics.apdRange.textContent = formatMetric(metrics.apdRange, ' ms');
+    ui.metrics.beatCount.textContent = Number.isFinite(metrics.beatCount) ? String(metrics.beatCount) : '—';
+    ui.metrics.preset.textContent = formatPresetName(metrics.preset);
 
-function eads() {
-    inafacnum.value = 1.0;
-    itofacnum.value = 0.0;
-    icalfacnum.value = 1.0;
-    ikfacnum.value = 1.0;
-    ikifacnum.value = 1.0;
-    tauXfacnum.value = 10.0;
-    yshiftnum.value = 0.0;
-    beatsnum.value = 10;
-    pclnum.value = 1575;
-}
+    if (Number.isFinite(metrics.minX) && Number.isFinite(metrics.maxX)) {
+      ui.metrics.presetNote.textContent = `Initial X range: ${metrics.minX.toFixed(4)} to ${metrics.maxX.toFixed(4)}`;
+    } else {
+      ui.metrics.presetNote.textContent = 'No complete APDs detected in this run';
+    }
+  }
 
-/*
-inafacnum.addEventListener("change", function() {
-    pacecell();
-});
+  function setFormValues(values) {
+    INPUT_IDS.forEach((id) => {
+      const value = values[id];
+      if (!ui.inputs[id]) return;
 
-itofacnum.addEventListener("change", function() {
-    pacecell();
-});
+      ui.inputs[id].value = Number.isFinite(value)
+        ? (Number.isInteger(value) ? String(value) : value.toFixed(2))
+        : '';
+    });
+  }
 
-pclnum.addEventListener("change", function() {
-    pacecell();
-});
+  function getInputValues() {
+    const values = {};
+    INPUT_IDS.forEach((id) => {
+      values[id] = Number.parseFloat(ui.inputs[id].value);
+    });
 
-beatsnum.addEventListener("change", function() {
-    pacecell();
-});
+    values.beats = Math.round(values.beats);
+    values.pcl = Math.round(values.pcl);
+    return values;
+  }
 
-tauXfacnum.addEventListener("change", function() {
-    pacecell();
-});
+  function validateInputs(values) {
+    const ranges = {
+      inafac: [0, 5],
+      itofac: [0, 5],
+      icalfac: [0, 5],
+      ikfac: [0, 5],
+      ikifac: [0, 5],
+      tauXfac: [0.1, 25],
+      yshift: [-40, 40],
+      beats: [1, 250],
+      pcl: [50, 5000],
+    };
 
-icalfacnum.addEventListener("change", function() {
-    pacecell();
-});
+    for (const [key, [min, max]] of Object.entries(ranges)) {
+      const value = values[key];
+      if (!Number.isFinite(value)) {
+        throw new Error(`Please enter a valid numeric value for ${key}.`);
+      }
+      if (value < min || value > max) {
+        throw new Error(`${key} must be between ${min} and ${max}.`);
+      }
+    }
+  }
 
-ikifacnum.addEventListener("change", function() {
-    pacecell();
-});
+  function applyPreset(presetName) {
+    const preset = PRESETS[presetName];
+    if (!preset) return;
 
-ikfacnum.addEventListener("change", function() {
-    pacecell();
-});
+    setFormValues(preset);
+    setActivePreset(presetName);
+    queueRun(true);
+  }
 
-yshiftnum.addEventListener("change", function() {
-    pacecell();
-});
-*/
+  function setActivePreset(presetName) {
+    currentPreset = presetName;
+
+    Object.entries(ui.presetButtons).forEach(([name, button]) => {
+      button.classList.remove('btn-pill-active', 'btn-secondary', 'btn-ghost');
+
+      if (name === presetName) {
+        button.classList.add('btn-pill-active');
+      } else if (name === 'default') {
+        button.classList.add('btn-secondary');
+      } else {
+        button.classList.add('btn-ghost');
+      }
+    });
+  }
+
+  function detectPresetFromCurrentValues() {
+    const currentValues = getInputValues();
+
+    const matchedPreset = Object.entries(PRESETS).find(([, preset]) => {
+      return isSameConfig(currentValues, preset);
+    });
+
+    if (matchedPreset) {
+      setActivePreset(matchedPreset[0]);
+      return;
+    }
+
+    currentPreset = 'custom';
+    Object.entries(ui.presetButtons).forEach(([name, button]) => {
+      button.classList.remove('btn-pill-active', 'btn-secondary', 'btn-ghost');
+      button.classList.add(name === 'default' ? 'btn-secondary' : 'btn-ghost');
+    });
+
+    ui.metrics.preset.textContent = 'Custom';
+    ui.metrics.presetNote.textContent = 'Manual parameter edits';
+  }
+
+  function exportPlotImage() {
+    if (!ui.plot || !ui.plot.data || typeof Plotly === 'undefined') {
+      setStatus('error', 'Run a simulation before exporting the plot.');
+      return;
+    }
+
+    Plotly.downloadImage(ui.plot, {
+      format: 'png',
+      filename: 'lr1-simulation',
+      width: 1600,
+      height: 900,
+      scale: 2,
+    });
+  }
+
+  function updateRunningState(running) {
+    ui.runBtn.disabled = running;
+    ui.resetBtn.disabled = running;
+    ui.exportBtn.disabled = running && !lastResult;
+
+    Object.values(ui.presetButtons).forEach((button) => {
+      button.disabled = running;
+    });
+  }
+
+  function setStatus(kind, message) {
+    ui.status.classList.remove('ready', 'running', 'error');
+    ui.status.classList.add(kind);
+    ui.statusText.textContent = message;
+  }
+
+  function computeApdRange(apds) {
+    if (!Array.isArray(apds) || apds.length === 0) return undefined;
+
+    const min = Math.min(...apds);
+    const max = Math.max(...apds);
+    const pad = Math.max(25, (max - min) * 0.2);
+    return [Math.max(0, min - pad), max + pad];
+  }
+
+  function computeXScatterRange(minX, maxX) {
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return undefined;
+
+    const pad = Math.max(0.01, (maxX - minX) * 0.2);
+    return [minX - pad, maxX + pad];
+  }
+
+  function formatMetric(value, suffix = '') {
+    return Number.isFinite(value) ? `${value.toFixed(1)}${suffix}` : '—';
+  }
+
+  function formatNumber(value, decimals) {
+    return Number.isFinite(value) ? value.toFixed(decimals) : '—';
+  }
+
+  function formatPresetName(preset) {
+    switch (preset) {
+      case 'default':
+        return 'Default';
+      case 'chaos':
+        return 'Chaos';
+      case 'eads':
+        return 'EADs';
+      case 'custom':
+        return 'Custom';
+      default:
+        return 'Default';
+    }
+  }
+
+  function isSameConfig(a, b) {
+    return INPUT_IDS.every((key) => {
+      return Math.abs(Number(a[key]) - Number(b[key])) < 1e-9;
+    });
+  }
+
+  function debounce(fn, delay) {
+    let timerId = null;
+    return function debounced(...args) {
+      if (timerId) clearTimeout(timerId);
+      timerId = setTimeout(() => fn.apply(this, args), delay);
+    };
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+})();

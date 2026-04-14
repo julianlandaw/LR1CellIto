@@ -89,7 +89,7 @@ class LR1CellIto {
         this.comp_ib();
         this.dv = (this.diffcurrent - (this.ikr + this.ik1 + this.ito + this.ina + this.ical + this.ib + this.ipk + st))*this.dt;
 
-        if (DV_MAX > 0 & this.dv*this.dv > DV_MAX*DV_MAX) {
+        if (DV_MAX > 0 && this.dv*this.dv > DV_MAX*DV_MAX) {
             return false;
         }
         else {
