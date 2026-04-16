@@ -255,3 +255,14 @@ class LR1CellIto {
 
     }
 }
+
+// Expose the constructor explicitly for browser usage and optional CommonJS testing.
+if (typeof window !== 'undefined') {
+  window.LR1CellIto = LR1CellIto;
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.LR1CellIto = LR1CellIto;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = LR1CellIto;
+}

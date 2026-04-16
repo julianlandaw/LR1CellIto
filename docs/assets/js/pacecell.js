@@ -185,16 +185,17 @@
   }
 
   function runSimulation(inputValues) {
-    if (typeof LR1CellIto !== 'function') {
-      throw new Error('LR1CellIto.js is not loaded. Check the script path near the bottom of index.html.');
+    const CellClass = window.LR1CellIto || (typeof LR1CellIto === 'function' ? LR1CellIto : null);
+    if (typeof CellClass !== 'function') {
+      throw new Error('LR1CellIto.fast.js is not loaded. Make sure index.fast.html loads LR1CellIto.fast.js before pacecell.fast.js.');
     }
 
     if (typeof Plotly === 'undefined') {
-      throw new Error('Plotly is not loaded. Update the local Plotly script path in index.html.');
+      throw new Error('Plotly is not loaded. Update the local Plotly script path in index.fast.html.');
     }
 
     const startedAt = performance.now();
-    const cell = new LR1CellIto();
+    const cell = new CellClass();
 
     cell.inafac = inputValues.inafac;
     cell.itofac = inputValues.itofac;
