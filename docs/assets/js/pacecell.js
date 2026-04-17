@@ -373,7 +373,7 @@
       },
       paper_bgcolor: '#ffffff',
       plot_bgcolor: '#fbfdff',
-      margin: { l: 64, r: 24, t: 58, b: 48 },
+      margin: { l: 64, r: 24, t: 100, b: 100 },
       showlegend: false,
       height: 820,
       grid: {
@@ -381,7 +381,7 @@
         columns: 1,
         pattern: 'independent',
         roworder: 'top to bottom',
-        ygap: 0.08,
+        ygap: .4,
       },
       xaxis: {
         title: 'Time (s)',
