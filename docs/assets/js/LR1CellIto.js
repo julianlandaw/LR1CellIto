@@ -122,7 +122,11 @@ class LR1CellIto {
     };
     comp_ina() {
         const ena = (this.rtf/this.zna)*Math.log(this.nao/this.nai);
-        const am = 0.32*(this.v+47.13)/(1.0-Math.exp(-0.1*(this.v+47.13)));
+        const sodiumVoltage = this.v + 47.13;
+        // The original expression is 0/0 at -47.13 mV; its limit is 3.2.
+        const am = Math.abs(sodiumVoltage) < 1e-8
+            ? 3.2
+            : 0.32*sodiumVoltage/-Math.expm1(-0.1*sodiumVoltage);
         const bm = 0.08*Math.exp(-this.v/11.0);
         let ah, bh, aj, bj = 0.0;
     
@@ -210,7 +214,12 @@ class LR1CellIto {
     
         ekr = (this.rtf/this.zk)*Math.log((this.ko + this.prnak*this.nao)/(this.ki + this.prnak*this.nai));
     
-        r = (this.v > -100.0) ? 2.837*(Math.exp(0.04*(this.v + 77.0)) - 1.0)/((this.v + 77.0)*Math.exp(0.04*(this.v + 35.0))) : 1.0;
+        const rectifierVoltage = this.v + 77.0;
+        r = this.v > -100.0
+            ? 2.837*(Math.abs(rectifierVoltage) < 1e-8
+                ? 0.04
+                : Math.expm1(0.04*rectifierVoltage)/rectifierVoltage)/Math.exp(0.04*(this.v + 35.0))
+            : 1.0;
     
         ax = 0.0005*Math.exp(0.083*(this.v + 50))/(1.0 + Math.exp(0.057*(this.v + 50)));
         bx = 0.0013*Math.exp(-0.06*(this.v + 20))/(1.0 + Math.exp(-0.04*(this.v + 20)));

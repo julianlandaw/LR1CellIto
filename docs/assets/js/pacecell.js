@@ -40,16 +40,21 @@
   };
 
   const INPUT_IDS = ['inafac', 'itofac', 'icalfac', 'ikfac', 'ikifac', 'tauXfac', 'yshift', 'beats', 'pcl'];
-  const SAMPLE_INTERVAL_MS = 5;
-  const WARMUP_MS = 10000;
+  const FIELD_LABELS = {
+    inafac: 'I Na multiplier', itofac: 'I to multiplier', icalfac: 'I Ca,L multiplier',
+    ikfac: 'I Kr multiplier', ikifac: 'I K1 multiplier', tauXfac: 'X gate scaling',
+    yshift: 'y shift', beats: 'Beats', pcl: 'PCL',
+  };
   const AUTO_UPDATE_DEBOUNCE_MS = 450;
 
   let ui = {};
   let currentPreset = 'default';
-  let isRunning = false;
-  let pendingRun = false;
   let debouncedTimer = null;
+  let activeWorker = null;
+  let runId = 0;
   let lastResult = null;
+  let resultsStale = true;
+  let plotQueue = Promise.resolve();
 
   function init() {
     ui = {
@@ -57,6 +62,9 @@
       plot: document.getElementById('myDiv1'),
       status: document.getElementById('statusIndicator'),
       statusText: document.getElementById('statusText'),
+      inputError: document.getElementById('inputError'),
+      resultState: document.getElementById('resultState'),
+      apdTableBody: document.getElementById('apdTableBody'),
       autoUpdate: document.getElementById('autoUpdate'),
       runBtn: document.getElementById('runBtn'),
       resetBtn: document.getElementById('resetBtn'),
@@ -71,6 +79,7 @@
         apdMax: document.getElementById('metricApdMax'),
         apdRange: document.getElementById('metricApdRange'),
         beatCount: document.getElementById('metricBeatCount'),
+        beatNote: document.getElementById('metricBeatNote'),
         preset: document.getElementById('metricPreset'),
         presetNote: document.getElementById('metricPresetNote'),
       },
@@ -97,10 +106,14 @@
     ui.resetBtn.addEventListener('click', () => {
       setFormValues(DEFAULTS);
       setActivePreset('default');
+      setResultsStale(true);
       queueRun(true);
     });
 
     ui.exportBtn.addEventListener('click', exportPlotImage);
+    ui.autoUpdate.addEventListener('change', () => {
+      if (ui.autoUpdate.checked && resultsStale) queueRun(true);
+    });
 
     Object.entries(ui.presetButtons).forEach(([presetName, button]) => {
       button.addEventListener('click', () => {
@@ -117,18 +130,20 @@
 
     window.addEventListener('resize', debounce(() => {
       if (ui.plot && window.Plotly && ui.plot.data) {
-        Plotly.Plots.resize(ui.plot);
+        Plotly.relayout(ui.plot, { height: plotHeight() }).catch(console.error);
       }
     }, 150));
   }
 
   function handleInputChange() {
+    clearInputError();
     detectPresetFromCurrentValues();
+    setResultsStale(true);
 
     if (ui.autoUpdate.checked) {
       queueRun();
     } else {
-      setStatus('ready', 'Parameter updated. Click “Run simulation” to refresh plots.');
+      setStatus('ready', 'Parameters changed. Run the simulation to refresh results.');
     }
   }
 
@@ -144,177 +159,104 @@
     }
 
     debouncedTimer = setTimeout(() => {
+      debouncedTimer = null;
       startSimulation();
     }, AUTO_UPDATE_DEBOUNCE_MS);
   }
 
   function startSimulation() {
-    if (isRunning) {
-      pendingRun = true;
+    let inputValues;
+    try {
+      inputValues = getInputValues(true);
+      clearInputError();
+    } catch (error) {
+      cancelActiveWorker();
+      setResultsStale(true);
+      showInputError(error);
+      updateRunningState(false);
       return;
     }
 
-    isRunning = true;
+    cancelActiveWorker();
+    const id = ++runId;
+    const preset = currentPreset;
+    let worker;
+    try {
+      worker = new Worker('assets/js/simulation-worker.js');
+    } catch (error) {
+      setStatus('error', `Could not start the simulation worker: ${error.message}`);
+      return;
+    }
+    activeWorker = worker;
     updateRunningState(true);
     setStatus('running', 'Running simulation…');
+    let shownProgress = 0;
 
-    window.requestAnimationFrame(() => {
+    worker.onmessage = async ({ data }) => {
+      if (!data || data.id !== runId || worker !== activeWorker) return;
+      if (data.kind === 'progress') {
+        const progress = Math.floor(data.percent / 10) * 10;
+        if (progress > shownProgress) {
+          shownProgress = progress;
+          setStatus('running', `Running simulation… ${progress}%`);
+        }
+        return;
+      }
+      if (data.kind === 'error') {
+        finishWithError(data.message);
+        return;
+      }
+      if (data.kind !== 'result') return;
+
+      worker.terminate();
+      activeWorker = null;
+      const result = data.result;
+      result.metrics.preset = preset;
       try {
-        const inputValues = getInputValues();
-        validateInputs(inputValues);
-
-        const result = runSimulation(inputValues);
+        plotQueue = plotQueue.catch(() => {}).then(() => renderPlots(result));
+        await plotQueue;
         lastResult = result;
         renderMetrics(result.metrics);
-        renderPlots(result);
-
-        setStatus('ready', `Simulation complete in ${result.runtimeMs.toFixed(0)} ms.`);
+        renderApdTable(result);
+        const fresh = id === runId && isSameConfig(getInputValues(false), result.inputs);
+        setResultsStale(!fresh);
+        if (id !== runId) return;
+        setStatus('ready', fresh
+          ? `Simulation complete in ${result.runtimeMs.toFixed(0)} ms.`
+          : 'Simulation complete. Parameters changed while it was running.');
       } catch (error) {
-        console.error(error);
-        setStatus('error', error && error.message ? error.message : 'Simulation failed.');
+        if (id === runId) finishWithError(error.message || 'Plot rendering failed.');
       } finally {
-        isRunning = false;
-        updateRunningState(false);
-
-        if (pendingRun) {
-          pendingRun = false;
-          startSimulation();
-        }
+        if (id === runId) updateRunningState(false);
       }
-    });
+    };
+
+    worker.onerror = (event) => {
+      if (id !== runId) return;
+      console.error(event);
+      finishWithError('The simulation worker failed to load or run.');
+    };
+
+    worker.postMessage({ kind: 'run', id, inputs: inputValues });
   }
 
-  function runSimulation(inputValues) {
-    const CellClass = window.LR1CellIto || (typeof LR1CellIto === 'function' ? LR1CellIto : null);
-    if (typeof CellClass !== 'function') {
-      throw new Error('LR1CellIto.fast.js is not loaded. Make sure index.fast.html loads LR1CellIto.fast.js before pacecell.fast.js.');
-    }
+  function cancelActiveWorker() {
+    runId += 1;
+    if (activeWorker) activeWorker.terminate();
+    activeWorker = null;
+  }
 
-    if (typeof Plotly === 'undefined') {
-      throw new Error('Plotly is not loaded. Update the local Plotly script path in index.fast.html.');
-    }
-
-    const startedAt = performance.now();
-    const cell = new CellClass();
-
-    cell.inafac = inputValues.inafac;
-    cell.itofac = inputValues.itofac;
-    cell.icalfac = inputValues.icalfac;
-    cell.ikfac = inputValues.ikfac;
-    cell.ikifac = inputValues.ikifac;
-    cell.tauXfac = inputValues.tauXfac;
-    cell.yshift = inputValues.yshift;
-
-    const warmupSteps = Math.ceil(WARMUP_MS / cell.dt);
-    for (let i = 0; i < warmupSteps; i += 1) {
-      cell.stepdt(0);
-    }
-
-    let t = 0;
-    let nextStim = 100;
-
-    for (t = cell.dt; t < inputValues.pcl * 10; t += cell.dt) {
-      if (t > nextStim - cell.dt / 2 && t < nextStim + cell.stimduration - cell.dt / 2) {
-        cell.stepdt(cell.stimulus);
-      } else {
-        cell.stepdt(0);
-      }
-
-      if (t > nextStim + cell.stimduration + cell.dt / 2) {
-        nextStim += inputValues.pcl;
-      }
-    }
-
-    const ts = [0];
-    const vs = [cell.v];
-    const xs = [cell.xr];
-    const apds = [];
-    const xsInit = [];
-    const apdCounter = [];
-
-    let oldV = cell.v;
-    let newV = cell.v;
-    let startApdTime = null;
-    let minApd = Infinity;
-    let maxApd = -Infinity;
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let lastSampleTime = SAMPLE_INTERVAL_MS;
-    nextStim = 100;
-
-    for (t = cell.dt; t < inputValues.pcl * inputValues.beats; t += cell.dt) {
-      oldV = cell.v;
-
-      if (t > nextStim - cell.dt / 2 && t < nextStim + cell.stimduration - cell.dt / 2) {
-        cell.stepdt(cell.stimulus);
-      } else {
-        cell.stepdt(0);
-      }
-
-      newV = cell.v;
-
-      if (newV > cell.threshold && oldV < cell.threshold) {
-        startApdTime = t;
-        xsInit.push(cell.xr);
-        minX = Math.min(minX, cell.xr);
-        maxX = Math.max(maxX, cell.xr);
-      }
-
-      if (newV < cell.threshold && oldV > cell.threshold && startApdTime !== null) {
-        const thisApd = t - startApdTime;
-        apds.push(thisApd);
-        apdCounter.push(apds.length);
-        minApd = Math.min(minApd, thisApd);
-        maxApd = Math.max(maxApd, thisApd);
-        startApdTime = null;
-      }
-
-      if (t > nextStim + cell.stimduration + cell.dt / 2) {
-        nextStim += inputValues.pcl;
-      }
-
-      if (t >= lastSampleTime - cell.dt / 2) {
-        ts.push(t / 1000);
-        vs.push(cell.v);
-        xs.push(cell.xr);
-        lastSampleTime += SAMPLE_INTERVAL_MS;
-      }
-    }
-
-    if (!Number.isFinite(minApd)) {
-      minApd = NaN;
-      maxApd = NaN;
-    }
-
-    if (!Number.isFinite(minX)) {
-      minX = NaN;
-      maxX = NaN;
-    }
-
-    const apdRange = Number.isFinite(minApd) && Number.isFinite(maxApd) ? maxApd - minApd : NaN;
-
-    return {
-      ts,
-      vs,
-      xs,
-      apds,
-      xsInit,
-      apdCounter,
-      runtimeMs: performance.now() - startedAt,
-      inputs: inputValues,
-      metrics: {
-        minApd,
-        maxApd,
-        apdRange,
-        beatCount: apds.length,
-        minX,
-        maxX,
-        preset: currentPreset,
-      },
-    };
+  function finishWithError(message) {
+    cancelActiveWorker();
+    setResultsStale(true);
+    updateRunningState(false);
+    setStatus('error', message);
   }
 
   function renderPlots(result) {
+    if (typeof Plotly === 'undefined') {
+      throw new Error('Plotly is not loaded from assets/js/plotly.js.');
+    }
     const yRange = computeApdRange(result.apds);
     const xScatterRange = computeXScatterRange(result.metrics.minX, result.metrics.maxX);
 
@@ -344,12 +286,12 @@
         y: result.apds,
         type: 'scatter',
         mode: 'markers+lines',
-        name: 'APD by beat',
+        name: 'APD by detected event',
         xaxis: 'x3',
         yaxis: 'y3',
         marker: { color: '#dc2626', size: 7 },
         line: { color: '#fca5a5', width: 1.5 },
-        hovertemplate: 'Beat: %{x}<br>APD: %{y:.2f} ms<extra></extra>',
+        hovertemplate: 'Detected APD: %{x}<br>APD: %{y:.2f} ms<extra></extra>',
       },
       {
         x: result.xsInit,
@@ -375,13 +317,13 @@
       plot_bgcolor: '#fbfdff',
       margin: { l: 64, r: 24, t: 100, b: 100 },
       showlegend: false,
-      height: 820,
+      height: plotHeight(),
       grid: {
         rows: 4,
         columns: 1,
         pattern: 'independent',
         roworder: 'top to bottom',
-        ygap: .4,
+        ygap: 0.15,
       },
       xaxis: {
         title: 'Time (s)',
@@ -408,7 +350,7 @@
         zeroline: false,
       },
       xaxis3: {
-        title: 'Beat number',
+        title: 'Detected APD number',
         showgrid: true,
         gridcolor: '#e2e8f0',
         zeroline: false,
@@ -436,7 +378,7 @@
       },
       annotations: [
         {
-          text: `Preset: ${formatPresetName(currentPreset)} · PCL: ${formatNumber(result.inputs.pcl, 0)} ms · Beats: ${formatNumber(result.inputs.beats, 0)}`,
+          text: `Preset: ${formatPresetName(result.metrics.preset)} · PCL: ${formatNumber(result.inputs.pcl, 0)} ms · Beats: ${formatNumber(result.inputs.beats, 0)}`,
           xref: 'paper',
           yref: 'paper',
           x: 1,
@@ -459,10 +401,14 @@
     };
 
     if (ui.plot && ui.plot.data) {
-      Plotly.react(ui.plot, traces, layout, config);
+      return Plotly.react(ui.plot, traces, layout, config);
     } else {
-      Plotly.newPlot(ui.plot, traces, layout, config);
+      return Plotly.newPlot(ui.plot, traces, layout, config);
     }
+  }
+
+  function plotHeight() {
+    return window.matchMedia('(max-width: 720px)').matches ? 1240 : 960;
   }
 
   function renderMetrics(metrics) {
@@ -470,6 +416,7 @@
     ui.metrics.apdMax.textContent = formatMetric(metrics.maxApd, ' ms');
     ui.metrics.apdRange.textContent = formatMetric(metrics.apdRange, ' ms');
     ui.metrics.beatCount.textContent = Number.isFinite(metrics.beatCount) ? String(metrics.beatCount) : '—';
+    ui.metrics.beatNote.textContent = `${metrics.deliveredStimuli} stimuli delivered; ${metrics.beatCount} complete APDs`;
     ui.metrics.preset.textContent = formatPresetName(metrics.preset);
 
     if (Number.isFinite(metrics.minX) && Number.isFinite(metrics.maxX)) {
@@ -477,6 +424,19 @@
     } else {
       ui.metrics.presetNote.textContent = 'No complete APDs detected in this run';
     }
+  }
+
+  function renderApdTable(result) {
+    ui.apdTableBody.replaceChildren();
+    result.apds.forEach((apd, index) => {
+      const row = document.createElement('tr');
+      [index + 1, apd.toFixed(2), result.xsInit[index].toFixed(4)].forEach((value) => {
+        const cell = document.createElement('td');
+        cell.textContent = String(value);
+        row.appendChild(cell);
+      });
+      ui.apdTableBody.appendChild(row);
+    });
   }
 
   function setFormValues(values) {
@@ -490,39 +450,57 @@
     });
   }
 
-  function getInputValues() {
+  function getInputValues(validate = false) {
     const values = {};
     INPUT_IDS.forEach((id) => {
-      values[id] = Number.parseFloat(ui.inputs[id].value);
+      const input = ui.inputs[id];
+      const value = input.valueAsNumber;
+      if (validate && !input.checkValidity()) {
+        const issue = input.validity;
+        let message = `${FIELD_LABELS[id]} must be a valid number.`;
+        if (issue.valueMissing) message = `Enter ${FIELD_LABELS[id]}.`;
+        else if (issue.rangeUnderflow || issue.rangeOverflow) {
+          message = `${FIELD_LABELS[id]} must be between ${input.min} and ${input.max}.`;
+        } else if (issue.stepMismatch) {
+          message = `${FIELD_LABELS[id]} must use increments of ${input.step}.`;
+        }
+        const error = new Error(message);
+        error.input = input;
+        throw error;
+      }
+      values[id] = value;
     });
-
-    values.beats = Math.round(values.beats);
-    values.pcl = Math.round(values.pcl);
     return values;
   }
 
-  function validateInputs(values) {
-    const ranges = {
-      inafac: [0, 5],
-      itofac: [0, 5],
-      icalfac: [0, 5],
-      ikfac: [0, 5],
-      ikifac: [0, 5],
-      tauXfac: [0.1, 25],
-      yshift: [-40, 40],
-      beats: [1, 250],
-      pcl: [50, 5000],
-    };
+  function clearInputError() {
+    ui.inputError.hidden = true;
+    ui.inputError.textContent = '';
+    INPUT_IDS.forEach((id) => {
+      ui.inputs[id].removeAttribute('aria-invalid');
+      ui.inputs[id].removeAttribute('aria-describedby');
+    });
+  }
 
-    for (const [key, [min, max]] of Object.entries(ranges)) {
-      const value = values[key];
-      if (!Number.isFinite(value)) {
-        throw new Error(`Please enter a valid numeric value for ${key}.`);
-      }
-      if (value < min || value > max) {
-        throw new Error(`${key} must be between ${min} and ${max}.`);
-      }
+  function showInputError(error) {
+    const input = error.input;
+    if (input) {
+      input.setAttribute('aria-invalid', 'true');
+      input.setAttribute('aria-describedby', 'inputError');
+      input.focus();
     }
+    ui.inputError.textContent = error.message;
+    ui.inputError.hidden = false;
+    setStatus('error', error.message);
+  }
+
+  function setResultsStale(stale) {
+    resultsStale = stale;
+    ui.resultState.textContent = lastResult
+      ? (stale ? 'Results show the previous run. Run again to refresh them.' : 'Results match the current parameters.')
+      : 'No completed simulation yet.';
+    ui.resultState.classList.toggle('stale', stale);
+    ui.exportBtn.disabled = stale || !lastResult || !!activeWorker;
   }
 
   function applyPreset(presetName) {
@@ -531,6 +509,8 @@
 
     setFormValues(preset);
     setActivePreset(presetName);
+    clearInputError();
+    setResultsStale(true);
     queueRun(true);
   }
 
@@ -539,6 +519,7 @@
 
     Object.entries(ui.presetButtons).forEach(([name, button]) => {
       button.classList.remove('btn-pill-active', 'btn-secondary', 'btn-ghost');
+      button.setAttribute('aria-pressed', String(name === presetName));
 
       if (name === presetName) {
         button.classList.add('btn-pill-active');
@@ -566,35 +547,32 @@
     Object.entries(ui.presetButtons).forEach(([name, button]) => {
       button.classList.remove('btn-pill-active', 'btn-secondary', 'btn-ghost');
       button.classList.add(name === 'default' ? 'btn-secondary' : 'btn-ghost');
+      button.setAttribute('aria-pressed', 'false');
     });
-
-    ui.metrics.preset.textContent = 'Custom';
-    ui.metrics.presetNote.textContent = 'Manual parameter edits';
   }
 
   function exportPlotImage() {
-    if (!ui.plot || !ui.plot.data || typeof Plotly === 'undefined') {
-      setStatus('error', 'Run a simulation before exporting the plot.');
+    if (!ui.plot || !ui.plot.data || typeof Plotly === 'undefined' || resultsStale || activeWorker) {
+      setStatus('error', 'Run the simulation with the current parameters before exporting.');
       return;
     }
 
-    Plotly.downloadImage(ui.plot, {
-      format: 'png',
-      filename: 'lr1-simulation',
-      width: 1600,
-      height: 900,
-      scale: 2,
-    });
+    try {
+      Promise.resolve(Plotly.downloadImage(ui.plot, {
+        format: 'png',
+        filename: 'lr1-simulation',
+        width: 1600,
+        height: 1400,
+        scale: 2,
+      })).catch((error) => setStatus('error', `Plot download failed: ${error.message}`));
+    } catch (error) {
+      setStatus('error', `Plot download failed: ${error.message}`);
+    }
   }
 
   function updateRunningState(running) {
-    ui.runBtn.disabled = running;
-    ui.resetBtn.disabled = running;
-    ui.exportBtn.disabled = running && !lastResult;
-
-    Object.values(ui.presetButtons).forEach((button) => {
-      button.disabled = running;
-    });
+    ui.runBtn.textContent = running ? 'Run again' : 'Run simulation';
+    ui.exportBtn.disabled = running || !lastResult || resultsStale;
   }
 
   function setStatus(kind, message) {

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>LR1 simulation regression checks</title>
+<h1>LR1 simulation regression checks</h1>
+<pre id="results">Running…</pre>
+<script src="../assets/js/LR1CellIto.js"></script>
+<script>
+  const defaults = {
+    inafac: 1, itofac: 0, icalfac: 1, ikfac: 1, ikifac: 1,
+    tauXfac: 1, yshift: 0, beats: 10, pcl: 500,
+  };
+  const results = [];
+
+  function assert(condition, message) {
+    if (!condition) throw new Error(message);
+  }
+
+  function simulate(inputs) {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker('../assets/js/simulation-worker.js');
+      worker.onerror = () => {
+        worker.terminate();
+        reject(new Error('Worker failed to load'));
+      };
+      worker.onmessage = ({ data }) => {
+        if (data.kind === 'progress') return;
+        worker.terminate();
+        if (data.kind === 'error') reject(new Error(data.message));
+        else resolve(data.result);
+      };
+      worker.postMessage({ kind: 'run', id: 1, inputs });
+    });
+  }
+
+  function checkResult(result, requestedBeats) {
+    assert(result.stimulusTimes.length === requestedBeats, 'Incorrect number of stimuli');
+    for (let i = 1; i < result.stimulusTimes.length; i += 1) {
+      assert(Math.abs(result.stimulusTimes[i] - result.stimulusTimes[i - 1] - result.inputs.pcl) < 1e-6,
+        'Stimulus interval differs from PCL');
+    }
+    assert(result.apds.length === result.xsInit.length, 'Unpaired initial X values');
+    assert(result.apds.length === result.apdCounter.length, 'Unpaired APD beat numbers');
+    assert(result.metrics.deliveredStimuli === requestedBeats, 'Incorrect delivered stimulus metric');
+    assert(result.vs.every(Number.isFinite), 'Nonfinite voltage trace');
+    assert(result.xs.every(Number.isFinite), 'Nonfinite X trace');
+  }
+
+  async function run() {
+    for (const voltage of [-47.13, -77]) {
+      const cell = new LR1CellIto();
+      cell.v = voltage;
+      cell.stepdt(0);
+      assert(Number.isFinite(cell.v) && Number.isFinite(cell.m) && Number.isFinite(cell.xr),
+        `Nonfinite state at ${voltage} mV`);
+    }
+    results.push('Singular voltages: pass');
+
+    const normal = await simulate(defaults);
+    checkResult(normal, 10);
+    assert(normal.apds.length === 10, 'Default run should complete 10 APDs');
+    results.push('Default pacing: pass');
+
+    for (const pcl of [50, 100]) {
+      const short = await simulate({ ...defaults, beats: 1, pcl });
+      checkResult(short, 1);
+      assert(short.stimulusTimes[0] === pcl / 2, `First stimulus missing at PCL ${pcl}`);
+      results.push(`One beat at PCL ${pcl}: pass`);
+    }
+
+    const chaos = await simulate({ ...defaults, inafac: 1, itofac: 1.05,
+      pcl: 378, beats: 50, tauXfac: 5, icalfac: 1.15, ikifac: 2.2, yshift: 8 });
+    checkResult(chaos, 50);
+    results.push('Chaos preset: pass');
+
+    const eads = await simulate({ ...defaults, tauXfac: 10, beats: 15, pcl: 1575 });
+    checkResult(eads, 15);
+    results.push('EAD preset: pass');
+
+    let rejected = false;
+    try {
+      await simulate({ ...defaults, pcl: 50.5 });
+    } catch (error) {
+      rejected = true;
+    }
+    assert(rejected, 'Fractional PCL should be rejected');
+    results.push('Fractional PCL validation: pass');
+    document.body.dataset.result = 'pass';
+    document.getElementById('results').textContent = results.join('\n');
+    return results;
+  }
+
+  window.testPromise = run().catch((error) => {
+    document.body.dataset.result = 'fail';
+    document.getElementById('results').textContent = `${results.join('\n')}\nFAIL: ${error.message}`;
+    return { error: error.message, results };
+  });
+</script>
+</html>

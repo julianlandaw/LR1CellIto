@@ -6,8 +6,7 @@
   <meta name="description" content="Interactive Luo-Rudy phase-1 cardiac cell simulator with pacing presets and APD analysis.">
   <title>The LR1 Model</title>
 
-  <!-- If your local Plotly file lives elsewhere, update this path. -->
-  <script src="assets/css/plotly.js"></script>
+  <script defer src="assets/js/plotly.js"></script>
 
   <style>
     :root {
@@ -202,6 +201,16 @@
       box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
     }
 
+    input[aria-invalid="true"] {
+      border-color: var(--danger);
+    }
+
+    .input-error {
+      margin: 12px 0 0;
+      color: var(--danger);
+      font-size: 0.9rem;
+    }
+
     .btn-row,
     .preset-row,
     .toolbar-row {
@@ -278,14 +287,18 @@
     }
 
     .toggle {
-      display: inline-flex;
+      display: flex;
       align-items: center;
-      gap: 10px;
+      justify-content: space-between;
+      gap: 16px;
+      width: 100%;
       cursor: pointer;
       user-select: none;
       color: var(--text);
       font-weight: 600;
     }
+
+    .toggle-copy strong { display: block; }
 
     .toggle input {
       position: absolute;
@@ -293,7 +306,7 @@
       pointer-events: none;
     }
 
-    .toggle span {
+    .toggle-switch {
       width: 48px;
       height: 28px;
       display: inline-flex;
@@ -306,7 +319,7 @@
       border: 1px solid transparent;
     }
 
-    .toggle span::after {
+    .toggle-switch::after {
       content: "";
       width: 22px;
       height: 22px;
@@ -318,11 +331,11 @@
       box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
     }
 
-    .toggle input:checked + span {
+    .toggle input:checked + .toggle-switch {
       background: rgba(37, 99, 235, 0.8);
     }
 
-    .toggle input:checked + span::after {
+    .toggle input:checked + .toggle-switch::after {
       transform: translateX(20px);
     }
 
@@ -440,6 +453,23 @@
       font-size: 0.84rem;
     }
 
+    .method-note,
+    .result-state {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .result-state.stale { color: var(--warning); }
+
+    .data-table-wrap { overflow-x: auto; margin-top: 16px; }
+    .data-table { width: 100%; border-collapse: collapse; text-align: left; }
+    .data-table th, .data-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .data-table th { color: var(--muted); font-size: 0.86rem; }
+    .apd-details { margin-top: 18px; }
+    .apd-details summary { cursor: pointer; font-weight: 600; }
+
     .plot-toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -457,7 +487,7 @@
 
     #myDiv1 {
       width: 100%;
-      min-height: 780px;
+      min-height: 960px;
     }
 
     .footer {
@@ -523,8 +553,14 @@
       }
 
       #myDiv1 {
-        min-height: 660px;
+        min-height: 1240px;
       }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .status.running .status-dot { animation: none; }
+      button, input[type="number"], .toggle-switch, .toggle-switch::after { transition: none; }
     }
 
     @media (max-width: 520px) {
@@ -548,7 +584,7 @@
         <div class="brand-badge" aria-hidden="true">LR1</div>
         <div class="brand-copy">
           <h1>The LR1 Model</h1>
-          <p>Interactive pacing, restitution, and APD dynamics explorer</p>
+          <p>Interactive pacing, APD, and X-gate dynamics explorer</p>
         </div>
       </div>
       <div class="header-note">Luo-Rudy phase-1 ventricular cell simulation with preset scenarios and responsive plots</div>
@@ -564,19 +600,15 @@
         </div>
         <div class="card-body">
           <div class="preset-row">
-            <button id="presetDefaultBtn" class="btn-secondary btn-pill-active" type="button">Default</button>
-            <button id="presetChaosBtn" class="btn-ghost" type="button">Chaos</button>
-            <button id="presetEadsBtn" class="btn-ghost" type="button">EADs</button>
+            <button id="presetDefaultBtn" class="btn-secondary btn-pill-active" type="button" aria-pressed="true">Default</button>
+            <button id="presetChaosBtn" class="btn-ghost" type="button" aria-pressed="false">Chaos</button>
+            <button id="presetEadsBtn" class="btn-ghost" type="button" aria-pressed="false">EADs</button>
           </div>
           <div class="toggle-wrap">
-            <div>
-              <div style="font-weight: 700;">Auto-update</div>
-              <div class="help-text">Re-run automatically after edits (debounced for smoother interaction).</div>
-            </div>
             <label class="toggle" for="autoUpdate">
+              <span class="toggle-copy"><strong>Auto-update</strong><span class="help-text">Re-run automatically after edits.</span></span>
               <input id="autoUpdate" type="checkbox">
-              <span aria-hidden="true"></span>
-              <!-- <span class="sr-only">Toggle auto update</span> -->
+              <span class="toggle-switch" aria-hidden="true"></span>
             </label>
           </div>
           <div id="statusIndicator" class="status ready" role="status" aria-live="polite">
@@ -596,23 +628,23 @@
             <div class="control-grid">
               <div class="control-row">
                 <label for="inafac">I<sub>Na</sub> multiplier<span class="help-text">Fast sodium current scaling</span></label>
-                <input type="number" id="inafac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+                <input type="number" id="inafac" name="inafac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal" required>
               </div>
               <div class="control-row">
                 <label for="itofac">I<sub>to</sub> multiplier<span class="help-text">Transient outward current scaling</span></label>
-                <input type="number" id="itofac" min="0" max="5" step="0.05" value="0.00" inputmode="decimal">
+                <input type="number" id="itofac" name="itofac" min="0" max="5" step="0.05" value="0.00" inputmode="decimal" required>
               </div>
               <div class="control-row">
                 <label for="icalfac">I<sub>Ca,L</sub> multiplier<span class="help-text">Slow inward calcium current scaling</span></label>
-                <input type="number" id="icalfac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+                <input type="number" id="icalfac" name="icalfac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal" required>
               </div>
               <div class="control-row">
                 <label for="ikfac">I<sub>Kr</sub> multiplier<span class="help-text">Rapid delayed rectifier scaling</span></label>
-                <input type="number" id="ikfac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+                <input type="number" id="ikfac" name="ikfac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal" required>
               </div>
               <div class="control-row">
                 <label for="ikifac">I<sub>K1</sub> multiplier<span class="help-text">Inward rectifier scaling</span></label>
-                <input type="number" id="ikifac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal">
+                <input type="number" id="ikifac" name="ikifac" min="0" max="5" step="0.05" value="1.00" inputmode="decimal" required>
               </div>
             </div>
           </div>
@@ -627,11 +659,11 @@
             <div class="control-grid">
               <div class="control-row compact">
                 <label for="tauXfac">&tau;<sub>X</sub> scaling<span class="help-text">Scales the X gate time constant</span></label>
-                <input type="number" id="tauXfac" min="0.1" max="25" step="0.1" value="1.00" inputmode="decimal">
+                <input type="number" id="tauXfac" name="tauXfac" min="0.1" max="25" step="0.1" value="1.00" inputmode="decimal" required>
               </div>
               <div class="control-row compact">
                 <label for="yshift">y shift<span class="help-text">Shifts I<sub>to</sub> recovery/inactivation kinetics</span></label>
-                <input type="number" id="yshift" min="-40" max="40" step="0.5" value="0.00" inputmode="decimal">
+                <input type="number" id="yshift" name="yshift" min="-40" max="40" step="0.5" value="0.00" inputmode="decimal" required>
               </div>
             </div>
           </div>
@@ -646,11 +678,11 @@
             <div class="control-grid">
               <div class="control-row compact">
                 <label for="beats">Beats<span class="help-text">Total number of paced beats to simulate</span></label>
-                <input type="number" id="beats" min="1" max="250" step="1" value="10" inputmode="numeric">
+                <input type="number" id="beats" name="beats" min="1" max="250" step="1" value="10" inputmode="numeric" required>
               </div>
               <div class="control-row compact">
                 <label for="pcl">PCL (ms)<span class="help-text">Pacing cycle length in milliseconds</span></label>
-                <input type="number" id="pcl" min="50" max="5000" step="1" value="500" inputmode="numeric">
+                <input type="number" id="pcl" name="pcl" min="50" max="5000" step="1" value="500" inputmode="numeric" required>
               </div>
             </div>
           </div>
@@ -667,6 +699,7 @@
               <button id="resetBtn" class="btn-secondary" type="button">Reset values</button>
               <button id="exportBtn" class="btn-ghost" type="button">Download plot</button>
             </div>
+            <p id="inputError" class="input-error" role="alert" hidden></p>
           </div>
         </section>
       </form>
@@ -674,7 +707,7 @@
 
     <section class="plot-column" aria-label="Simulation results">
       <section class="card hero-card">
-        <h2>Explore AP morphology, restitution, and beat-to-beat dynamics</h2>
+        <h2>Explore AP morphology and beat-to-beat dynamics</h2>
         <p>Use presets for <strong>Chaos</strong> or <strong>EADs</strong>, or tailor current multipliers manually. Summary tiles update after each run, and the Plotly figure includes zoom, pan, and built-in export tools.</p>
       </section>
 
@@ -695,9 +728,9 @@
           <div class="metric-subtext">Max minus min APD</div>
         </article>
         <article class="metric-card">
-          <span class="metric-label">Detected beats</span>
+          <span class="metric-label">Complete APDs</span>
           <div id="metricBeatCount" class="metric-value">—</div>
-          <div class="metric-subtext">APDs crossing threshold</div>
+          <div id="metricBeatNote" class="metric-subtext">Complete APDs crossing threshold</div>
         </article>
         <article class="metric-card">
           <span class="metric-label">Preset</span>
@@ -706,28 +739,41 @@
         </article>
       </section>
 
+      <p class="method-note">APD is the time between upward and downward crossings of −75 mV. Incomplete responses are excluded.</p>
+
       <section class="card">
         <div class="card-body">
           <div class="plot-toolbar">
             <div>
-              <h3 style="margin:0; font-size:1.02rem;">Simulation plots</h3>
-              <p>Action potential, X gate trajectory, APD by beat, and APD versus initial X.</p>
+              <h3 id="plotsHeading" style="margin:0; font-size:1.02rem;">Simulation plots</h3>
+              <p>Action potential, X gate trajectory, APD by detected event, and APD versus initial X.</p>
+              <p>Long voltage and X traces are sampled for display; APD calculations use every model step.</p>
+              <p id="resultState" class="result-state" role="status">No completed simulation yet.</p>
             </div>
           </div>
-          <div id="myDiv1"></div>
+          <div id="myDiv1" role="group" aria-labelledby="plotsHeading"></div>
+          <details class="apd-details">
+            <summary>APD data table</summary>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <caption class="sr-only">Completed action potential durations and initial X values</caption>
+                <thead><tr><th scope="col">Detected APD</th><th scope="col">APD (ms)</th><th scope="col">Initial X</th></tr></thead>
+                <tbody id="apdTableBody"></tbody>
+              </table>
+            </div>
+          </details>
         </div>
       </section>
     </section>
   </main>
 
   <footer class="footer">
-    <p>Copyright <span id="year"></span> © Julian Landaw. Replace the Plotly script path in the head section if your local plotly.js file lives elsewhere.</p>
+    <p>Copyright <span id="year"></span> © Julian Landaw.</p>
   </footer>
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
   </script>
-  <script src="assets/js/LR1CellIto.js"></script>
-  <script src="assets/js/pacecell.js"></script>
+  <script defer src="assets/js/pacecell.js"></script>
 </body>
 </html>
