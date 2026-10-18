@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mathematical analysis of the LR1 cell simulator's default, chaos, and EAD presets, including Lyapunov exponents.">
+  <title>Dynamics of the LR1 Cell with Ito: Pacing, EADs, and Chaos</title>
+  <style>
+    :root { color-scheme: light; --ink: #0f172a; --muted: #475569; --line: #dbe3ef; --accent: #1d4ed8; --surface: #fff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f3f6fb; color: var(--ink); font: 1rem/1.68 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    a { color: var(--accent); }
+    a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+    .page { max-width: 920px; margin: 0 auto; padding: 24px 20px 64px; }
+    .utility { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-bottom: 18px; font-size: .94rem; font-weight: 600; }
+    article { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 12px 30px rgba(15,23,42,.07); padding: clamp(22px,5vw,56px); }
+    header { border-bottom: 1px solid var(--line); padding-bottom: 18px; }
+    h1 { font-size: clamp(1.75rem,3.6vw,2.45rem); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 8px; }
+    .subtitle, .date { color: var(--muted); margin: 0; }
+    .date { font-size: .9rem; margin-top: 3px; }
+    h2 { font-size: 1.38rem; line-height: 1.3; margin: 2.1rem 0 .65rem; }
+    p { margin: .8rem 0; }
+    .abstract { border-left: 4px solid var(--accent); padding-left: 16px; margin: 20px 0 26px; }
+    .abstract h2 { font-size: 1.05rem; margin: 0; }
+    .abstract p { margin: 5px 0 0; }
+    .equation { overflow-x: auto; text-align: center; font-family: "Cambria Math", "STIX Two Math", Georgia, serif; font-size: 1.13rem; white-space: nowrap; padding: 12px 8px; margin: 12px 0; background: #f8fafc; border: 1px solid #e5ebf4; border-radius: 10px; }
+    .equation .frac { display: inline-block; vertical-align: middle; text-align: center; line-height: 1.15; }
+    .equation .frac > span { display: block; padding: 0 4px; }
+    .equation .frac > span:first-child { border-bottom: 1px solid currentColor; }
+    code { background: #eef2ff; padding: .08em .24em; border-radius: 3px; font-size: .92em; }
+    .table-wrap { overflow-x: auto; margin: 18px 0 24px; }
+    table { border-collapse: collapse; width: 100%; min-width: 560px; font-variant-numeric: tabular-nums; }
+    caption { text-align: left; font-weight: 600; margin-bottom: 8px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }
+    th { background: #eff6ff; }
+    .num { text-align: right; white-space: nowrap; }
+    .references { padding-left: 1.4rem; }
+    .references li { margin: .6rem 0; }
+    @media print { body { background: white; } .page { max-width: none; padding: 0; } .utility { display: none; } article { border: 0; box-shadow: none; padding: 0; } a { color: inherit; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav class="utility" aria-label="Document navigation">
+      <a href="index.html">← Back to simulator</a>
+      <a href="model-analysis.tex" download>Download LaTeX source</a>
+    </nav>
+    <article>
+      <header>
+        <h1>Dynamics of the LR1 Cell with Ito: Pacing, EADs, and Chaos</h1>
+        <p class="subtitle">Analysis of the interactive simulation</p>
+        <p class="date">October 2026</p>
+      </header>
+
+      <section class="abstract" aria-labelledby="abstract-heading">
+        <h2 id="abstract-heading">Abstract</h2>
+        <p>This note analyzes the implemented, periodically paced single-cell model. It explains why the default, chaos, and early-afterdepolarization (EAD) presets differ; reports measurements from the JavaScript simulation; and estimates the largest Lyapunov exponent for each preset. The numerical results describe this model and its pacing protocol, not a whole heart.</p>
+      </section>
+
+      <section aria-labelledby="model-heading">
+        <h2 id="model-heading">Model and measurements</h2>
+        <p>The dynamic state is</p>
+        <div class="equation" role="math" aria-label="s equals V, C sub i, m, h, j, x sub r, d, f, x sub to s, y sub to s, x sub to f, y sub to f">
+          <i>s</i> = (<i>V</i>, <i>C</i><sub>i</sub>, <i>m</i>, <i>h</i>, <i>j</i>, <i>x</i><sub>r</sub>, <i>d</i>, <i>f</i>, <i>x</i><sub>to,s</sub>, <i>y</i><sub>to,s</sub>, <i>x</i><sub>to,f</sub>, <i>y</i><sub>to,f</sub>).
+        </div>
+        <p>Voltage follows the balance of seven membrane currents and the applied stimulus:</p>
+        <div class="equation" role="math" aria-label="d V over d t equals minus the sum of sodium, calcium, transient outward, rapid delayed rectifier, inward rectifier, plateau potassium, background, and stimulus currents">
+          <span class="frac"><span>d<i>V</i></span><span>d<i>t</i></span></span> = −(<i>I</i><sub>Na</sub> + <i>I</i><sub>Ca,L</sub> + <i>I</i><sub>to</sub> + <i>I</i><sub>Kr</sub> + <i>I</i><sub>K1</sub> + <i>I</i><sub>pK</sub> + <i>I</i><sub>b</sub> + <i>I</i><sub>stim</sub>).
+        </div>
+        <p>Negative net current therefore depolarizes the cell. The rapid delayed rectifier has the form</p>
+        <div class="equation" role="math" aria-label="I K r equals g K r times x r times r of V times V minus E K r; tau x r equals tau X factor divided by a x of V plus b x of V">
+          <i>I</i><sub>Kr</sub> = <i>g</i><sub>Kr</sub> <i>x</i><sub>r</sub> <i>r</i>(<i>V</i>) (<i>V</i> − <i>E</i><sub>Kr</sub>), &nbsp;
+          <i>τ</i><sub>x<sub>r</sub></sub> = <code>tauXfac</code> <span class="frac"><span>1</span><span><i>a</i><sub>x</sub>(<i>V</i>) + <i>b</i><sub>x</sub>(<i>V</i>)</span></span>.
+        </div>
+        <p>Increasing <code>tauXfac</code> slows the evolution of <i>x</i><sub>r</sub> without changing its voltage-dependent steady state. The transient outward current changes the early plateau; <code>itofac</code> scales its fast component and <code>yshift</code> changes its inactivation and recovery curves. The slow Ito multiplier is zero in all three presets, so its two gates evolve but do not feed back into voltage.</p>
+        <p>The simulation uses a 0.01 ms base step, a −80 stimulus for 0.5 ms each cycle, 10 s of unpaced warm-up, and 10 paced conditioning beats before recording. Action potential duration (APD) is the time from the upward to the downward crossing of −75 mV. Thus the reported APD is a fixed-threshold duration, not an APD90 measurement. The worker counts complete threshold crossings even when an action potential extends into the next pacing cycle.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Preset parameters. The <code>inafac</code> and <code>ikfac</code> multipliers equal one in all three presets.</caption>
+            <thead><tr><th scope="col">Parameter</th><th scope="col" class="num">Default</th><th scope="col" class="num">Chaos</th><th scope="col" class="num">EADs</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Pacing cycle length (ms)</th><td class="num">500</td><td class="num">378</td><td class="num">1575</td></tr>
+              <tr><th scope="row"><code>itofac</code></th><td class="num">0</td><td class="num">1.05</td><td class="num">0</td></tr>
+              <tr><th scope="row"><code>icalfac</code></th><td class="num">1</td><td class="num">1.15</td><td class="num">1</td></tr>
+              <tr><th scope="row"><code>ikifac</code></th><td class="num">1</td><td class="num">2.2</td><td class="num">1</td></tr>
+              <tr><th scope="row"><code>tauXfac</code></th><td class="num">1</td><td class="num">5</td><td class="num">10</td></tr>
+              <tr><th scope="row"><code>yshift</code></th><td class="num">0</td><td class="num">8</td><td class="num">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="chaos-heading">
+        <h2 id="chaos-heading">Why the chaos preset is irregular</h2>
+        <p>The model has no random input. A beat changes channel gates, calcium, and voltage, which determine the response to the next identical stimulus. If every stimulus captures and stimulus-to-upstroke delay changes little, the diastolic interval obeys the useful approximation</p>
+        <div class="equation" role="math" aria-label="D sub n is approximately P minus A sub n"><i>D</i><sub>n</sub> ≈ <i>P</i> − <i>A</i><sub>n</sub>.</div>
+        <p>where <i>P</i> is pacing cycle length and <i>A</i><sub>n</sub> is APD. At <i>P</i> = 378 ms, an APD near 346 ms leaves about 32 ms for recovery; an APD near 50 ms leaves about 328 ms. Slower <i>x</i><sub>r</sub> evolution preserves memory of this difference. The strengthened early outward Ito, inward calcium current, and late outward <i>I</i><sub>K1</sub> make the plateau sensitive to the resulting current balance. This feedback is the mechanistic interpretation of the observed irregularity, supported by the parameter changes below; it is not a proof of a particular route to chaos.</p>
+        <p>In the JavaScript worker, the last 100 APDs of a 250-beat chaos run span about 50–344 ms, with 98 distinct values after rounding to 0.1 ms. For beats 101–250, initial <i>x</i><sub>r</sub> and the corresponding APD have Pearson correlation about −0.73: more available delayed potassium current is associated with a shorter action potential. The correlation is descriptive; APD also depends on the other state variables.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>One-at-a-time changes from the chaos preset, measured in the JavaScript worker after transients.</caption>
+            <thead><tr><th scope="col">Change</th><th scope="col">Long-run APD pattern</th></tr></thead>
+            <tbody>
+              <tr><td>None; <i>P</i> = 378 ms</td><td>Irregular; about 50–344 ms in the last 100 beats</td></tr>
+              <tr><td><code>icalfac</code>: 1.15 → 1</td><td>Fixed APD of 57.83 ms</td></tr>
+              <tr><td><code>tauXfac</code>: 5 → 1</td><td>Two-beat cycle: 50.23, 272.59 ms</td></tr>
+              <tr><td><i>P</i>: 378 → 500 ms</td><td>Three-beat cycle: 65.55, 157.79, 354.89 ms</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>One can summarize beat-to-beat evolution by a paced map <i>s</i><sub>n+1</sub> = <i>F</i><sub>P</sub>(<i>s</i><sub>n</sub>), sampled at the same phase of every cycle. A one-variable restitution sketch would be <i>A</i><sub>n+1</sub> = <i>G</i>(<i>P</i> − <i>A</i><sub>n</sub>), whose fixed point can lose stability when its slope has magnitude greater than one. This full model has additional gate and calcium memory, so an APD-only map cannot establish its stability. The observed fixed point, two-beat cycle, and three-beat cycle show nearby distinct attractors; they do not establish a period-doubling sequence.</p>
+      </section>
+
+      <section aria-labelledby="lyapunov-heading">
+        <h2 id="lyapunov-heading">Largest Lyapunov exponent</h2>
+        <p>The largest Lyapunov exponent measures the average exponential growth rate of a small difference in initial state under identical forcing. For the paced map and a generic infinitesimal perturbation, its definition is</p>
+        <div class="equation" role="math" aria-label="lambda per beat equals the limit as N goes to infinity of one over N times log of the norm of D F P to the N applied to delta s zero, divided by the norm of delta s zero">
+          <i>λ</i><sub>beat</sub> = lim<sub><i>N</i>→∞</sub> <span class="frac"><span>1</span><span><i>N</i></span></span> log <span class="frac"><span>∥<i>D</i>(<i>F</i><sub>P</sub><sup><i>N</i></sup>)(<i>s</i><sub>0</sub>) δ<i>s</i><sub>0</sub>∥</span><span>∥δ<i>s</i><sub>0</sub>∥</span></span>.
+        </div>
+        <p>A positive value means nearby trajectories separate on average; a negative value means they converge. We estimated it with two identically paced cells, measuring their separation <i>d</i><sub>n+1</sub> once per cycle and rescaling it to <i>ε</i> = 10<sup>−6</sup> after each measurement:</p>
+        <div class="equation" role="math" aria-label="estimated lambda per beat equals one over N times the sum from n equals zero to N minus one of log of d n plus one over epsilon; lambda per second equals lambda per beat divided by P in seconds">
+          <i>λ̂</i><sub>beat</sub> = <span class="frac"><span>1</span><span><i>N</i></span></span> Σ<sub>n=0</sub><sup>N−1</sup> log <span class="frac"><span><i>d</i><sub>n+1</sub></span><span><i>ε</i></span></span>, &nbsp;
+          <i>λ</i><sub>s<sup>−1</sup></sub> = <span class="frac"><span><i>λ</i><sub>beat</sub></span><span><i>P</i> in seconds</span></span>.
+        </div>
+        <p>The separation norm scales voltage by 100 mV, intracellular calcium by 10<sup>−4</sup> mM, and each gate by one. The initial perturbation was applied to <i>x</i><sub>r</sub>; subsequent rescaling followed the full state difference. Both trajectories receive the same stimuli. Estimates were calculated in the JavaScript model after the standard warm-up and conditioning protocol.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Finite-run estimates of the largest Lyapunov exponent.</caption>
+            <thead><tr><th scope="col">Preset and averaging beats</th><th scope="col" class="num">Per beat</th><th scope="col" class="num">Per second</th><th scope="col">Interpretation</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Default, 51–100</th><td class="num">−1.81</td><td class="num">−3.61</td><td>Stable repeating APD</td></tr>
+              <tr><th scope="row">Chaos, 101–600</th><td class="num">+0.33</td><td class="num">+0.88</td><td>Sustained sensitivity</td></tr>
+              <tr><th scope="row">EADs, 101–200</th><td class="num">+0.18</td><td class="num">+0.12</td><td>Sensitive long-run dynamics</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>For the chaos preset, <i>e</i><sup>0.33</sup> ≈ 1.39, so a small state perturbation grows by about 39% per beat on average; its e-folding time is about 1/0.33 ≈ 3 beats. The positive sign also survived a 100-fold change in perturbation size and halving or doubling the time step in a matching C++ implementation. These checks support a chaotic interpretation of the implemented paced dynamics, but a finite-run estimate is not a mathematical proof about the continuous equations. The displayed EAD preset has only 15 beats; that plot establishes an EAD, while the positive EAD exponent comes from a separate 200-beat calculation.</p>
+      </section>
+
+      <section aria-labelledby="ead-heading">
+        <h2 id="ead-heading">How the EAD forms</h2>
+        <p>The EAD preset increases only <code>tauXfac</code> to 10 and uses a long 1575 ms pacing cycle. Slower <i>x</i><sub>r</sub> evolution delays outward <i>I</i><sub>Kr</sub> during a long plateau. On the twelfth recorded beat, the inward L-type calcium current strengthens enough to reverse the net current, causing a secondary voltage rise before final repolarization.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Currents during that EAD, measured directly in the JavaScript model in model current units. Current signs follow the voltage equation above.</caption>
+            <thead><tr><th scope="col" class="num">Cycle phase (ms)</th><th scope="col" class="num"><i>V</i> (mV)</th><th scope="col" class="num"><i>I</i><sub>Ca,L</sub></th><th scope="col" class="num"><i>I</i><sub>Kr</sub></th><th scope="col" class="num">Net current</th></tr></thead>
+            <tbody>
+              <tr><td class="num">725</td><td class="num">−32.50</td><td class="num">−2.155</td><td class="num">+0.713</td><td class="num">+0.0022</td></tr>
+              <tr><td class="num">850</td><td class="num">−18.45</td><td class="num">−2.708</td><td class="num">+0.791</td><td class="num">−0.2601</td></tr>
+              <tr><td class="num">900</td><td class="num">−8.65</td><td class="num">−3.027</td><td class="num">+0.834</td><td class="num">−0.0925</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The net current changes from slightly outward to inward between 725 and 850 ms. Because d<i>V</i>/d<i>t</i> = −<i>I</i><sub>net</sub>, that sign change accounts for the renewed depolarization. A longer APD alone would not establish an EAD; the secondary rise in voltage does.</p>
+      </section>
+
+      <section aria-labelledby="interpretation-heading">
+        <h2 id="interpretation-heading">Interpretation and next calculations</h2>
+        <p>This simulation is a single cell with fixed sodium and potassium concentrations, simplified intracellular calcium dynamics, no tissue coupling, and no stochastic channel noise. It can reveal nonlinear mechanisms within its equations, but its exponents are not clinical risk estimates. A useful next calculation is a bifurcation diagram of late APDs versus pacing cycle length or <code>tauXfac</code>; another is the full Lyapunov spectrum from repeated Jacobian or perturbation propagation with QR orthogonalization. Those would locate transitions and estimate attractor dimension. Neither has been calculated here.</p>
+        <p>The original Luo–Rudy study reported periodic and aperiodic responses under pacing [1]. Related work analyzed bifurcations and chaos associated with EADs in a different cardiac model [2, 3]. Those papers provide context; the numerical values in this note come from this repository's simulation.</p>
+        <ol class="references">
+          <li>C. H. Luo and Y. Rudy, “A model of the ventricular cardiac action potential. Depolarization, repolarization, and their interaction,” <cite>Circulation Research</cite> 68 (1991), 1501–1526. <a href="https://doi.org/10.1161/01.res.68.6.1501">doi:10.1161/01.res.68.6.1501</a>.</li>
+          <li>D. X. Tran et al., “Bifurcation and chaos in a model of cardiac early afterdepolarizations,” <cite>Physical Review Letters</cite> 102 (2009), 258103. <a href="https://doi.org/10.1103/PhysRevLett.102.258103">doi:10.1103/PhysRevLett.102.258103</a>.</li>
+          <li>D. Sato et al., “Irregularly appearing early afterdepolarizations in cardiac myocytes: random fluctuations or dynamical chaos?” <cite>Biophysical Journal</cite> 99 (2010), 765–773. <a href="https://doi.org/10.1016/j.bpj.2010.05.019">doi:10.1016/j.bpj.2010.05.019</a>.</li>
+        </ol>
+      </section>
+    </article>
+  </div>
+</body>
+</html>

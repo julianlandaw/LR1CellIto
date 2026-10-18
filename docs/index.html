@@ -418,6 +418,19 @@
       color: rgba(255, 255, 255, 0.9);
     }
 
+    .hero-card .analysis-link {
+      color: white;
+      font-weight: 700;
+      text-decoration-thickness: 2px;
+      text-underline-offset: 3px;
+    }
+
+    .hero-card .analysis-link:focus-visible {
+      outline: 3px solid white;
+      outline-offset: 3px;
+      border-radius: 3px;
+    }
+
     .metrics-grid {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -709,6 +722,7 @@
       <section class="card hero-card">
         <h2>Explore AP morphology and beat-to-beat dynamics</h2>
         <p>Use presets for <strong>Chaos</strong> or <strong>EADs</strong>, or tailor current multipliers manually. Summary tiles update after each run, and the Plotly figure includes zoom, pan, and built-in export tools.</p>
+        <p><a class="analysis-link" href="model-analysis.html">Read the model analysis and Lyapunov results →</a></p>
       </section>
 
       <section class="metrics-grid" aria-label="Simulation summary metrics">
