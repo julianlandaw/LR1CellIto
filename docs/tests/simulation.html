@@ -5,6 +5,7 @@
 <h1>LR1 simulation regression checks</h1>
 <pre id="results">Running…</pre>
 <script src="../assets/js/LR1CellIto.js"></script>
+<script src="../assets/js/x-memory-fit.js"></script>
 <script>
   const defaults = {
     inafac: 1, itofac: 0, icalfac: 1, ikfac: 1, ikifac: 1,
@@ -62,6 +63,7 @@
     assert(result.eadCounts.length === result.apds.length, 'Unpaired EAD counts');
     assert(result.apdStartTimes.length === result.apds.length, 'Unpaired APD starts');
     assert(result.apdEndTimes.length === result.apds.length, 'Unpaired APD ends');
+    assert(result.xsRepolarized.length === result.apds.length, 'Unpaired X values at repolarization');
     for (const trace of [result.icalTrace, result.ikrTrace, result.netTrace]) {
       assert(trace.length === result.ts.length && trace.every(Number.isFinite), 'Invalid current trace');
     }
@@ -95,6 +97,10 @@
     checkResult(chaos, 50);
     assert(new Set(chaos.apds.map((apd) => apd.toFixed(1))).size > 10,
       'Chaos run should show varied APDs');
+    const calibration = XMemoryMap.calibratedMap(chaos);
+    assert(calibration && calibration.predictions.length >= 15, 'Calibrated map should predict held-out chaos beats');
+    assert(calibration.rmse < calibration.publishedRmse / 2,
+      'Calibrated map should substantially improve on the illustrative Hill curve');
     results.push('Chaos preset: pass');
 
     const eads = await simulate({ ...defaults, tauXfac: 10, beats: 15, pcl: 1575 });

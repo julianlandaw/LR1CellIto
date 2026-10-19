@@ -102,6 +102,45 @@ For example, the 2018 analysis approximates the monotonic APD-versus-X relation 
 \end{equation}
 The Hill exponent $h$ controls the steepness of $g$ near $k_x$. A steeper negative $g'(x)$ makes a flip of the return-map slope more likely, while plateau activation, diastolic recovery, and pacing period also enter $H'_P$. Thus increasing memory alone does not guarantee chaos; the competing time scales and APD sensitivity together set stability \cite{landaw2018}.
 
+\subsection{Why the illustrative curve misses individual chaos beats}
+
+The 2018 paper used two different APD-versus-X functions. Its close comparison with the full LR1 bifurcation diagram in Fig.~9 interpolated a measured $g(x)$ curve. The separate Hill example in Fig.~10 used $A_{\min}=50$ ms, $A_{\max}=350$ ms, $k_x=0.07$, $h=25$, $x_a=0.6$, $\tau_a=3000$ ms, and $\tau_d=1000$ ms, with an illustrative pacing period of $500$ ms \cite{landaw2018}. The website previously applied those illustrative constants directly at $P=378$ ms. Matching the conductances does not make that Hill curve a fitted predictor of this JavaScript trajectory.
+
+We compared the formulas with $250$ complete beats from the JavaScript chaos preset. Here $x_r$ at upstroke spans $0.06795$--$0.10585$, and $35$ of $249$ measured diastolic intervals are under $100$ ms. Upstrokes are exactly $378$ ms apart in this run, so replacing $P-A_n$ with the measured interval does not remove the discrepancy. The paper also reports that recovery of other currents can affect APD appreciably for diastolic intervals below $100$ ms \cite{landaw2018}.
+
+\begin{table}[H]
+\centering
+\caption{Pointwise RMS errors against the JavaScript chaos run. The published return-map evaluation clips APDs just outside its $50$--$350$ ms Hill domain. The calibrated results use only later beats for evaluation.}
+\begin{tabular}{p{0.56\linewidth}rr}
+\toprule
+Comparison & Beats or transitions & RMS error \\
+\midrule
+Published Hill $g(x_n)$ against measured $A_n$ & 250 & $38.9$ ms \\
+Published square-wave $w(x_n,A_n,P-A_n)$ against measured $x_{n+1}$ & 249 & $0.008$ in X \\
+Published illustrative $H_P(A_n)$ against measured $A_{n+1}$ & 249 & $103.5$ ms \\
+Calibrated map, first $30$ beats fitted; later transitions tested & 19 & $14.0$ ms \\
+Same $19$ transitions, illustrative Hill map & 19 & $95.0$ ms \\
+Calibrated map, first $150$ beats fitted; later transitions tested & 99 & $4.8$ ms \\
+Same $99$ transitions, illustrative Hill map & 99 & $105.9$ ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The square-wave plateau update overestimates X at repolarization by about $0.010$ on average. By contrast, starting from the measured repolarization X and fitting only exponential recovery gives a next-X RMS error of about $7\times10^{-5}$ on the $99$ held-out transitions. Supplying the actual next X and preceding diastolic interval to a locally calibrated APD response gives a $6.4$ ms held-out APD error. These checks locate most of the pointwise discrepancy in the illustrative APD response and plateau approximation, rather than in diastolic X decay.
+
+The calibrated map retains the measured X gate at the start of each beat and the actual diastolic interval. It estimates the X gate at repolarization by a cubic-in-APD regression $p_3(x_n,A_n)$, estimates recovery by an exponential with fitted time constant $\widehat\tau_d$, and predicts the next APD by a locally smoothed response $\widehat g(x_{n+1},D_n)$:
+\begin{equation}
+ \widehat x_{n+1}=p_3(x_n,A_n)e^{-D_n/\widehat\tau_d},
+ \qquad \widehat A_{n+1}=\widehat g(\widehat x_{n+1},D_n).
+\end{equation}
+Writing $t=A/350$, the plateau regression is $p_3(x,A)=x\sum_{k=0}^{3}b_k t^k+\sum_{k=1}^{3}c_k t^k$. The response estimate is a Gaussian-weighted average of observed APDs,
+\begin{equation}
+ K_j(x,D)=\exp\!\left[-\frac12\left(\frac{x-x_j}{h_x}\right)^2
+                         -\frac12\left(\frac{D-D_j}{h_D}\right)^2\right],
+ \qquad \widehat g(x,D)=\frac{\sum_j K_j(x,D)A_j}{\sum_j K_j(x,D)}.
+\end{equation}
+The fit uses the first $60\%$ of complete beats; the remaining transitions are held out. The bandwidths $h_x$ and $h_D$ are chosen by leave-one-out prediction within the fitting portion. Fitted X recovery is about $1163$ ms, close to the paper's approximate $1000$ ms. The main pointwise errors arise from the illustrative $g$ and square-wave plateau update, while the recovery approximation is comparatively good. These are one-step predictions using the measured current beat, on the same run and at the same parameters. They do not establish a parameter-independent return law or predict an entire chaotic trajectory without re-observation.
+
 \section{Largest Lyapunov exponent}
 
 The largest Lyapunov exponent measures the average exponential growth rate of a small difference in initial state under identical forcing. For the paced map and a generic infinitesimal perturbation, its definition is
@@ -159,7 +198,7 @@ The papers also report staircase-shaped APD restitution in the EAD regime: each 
 
 \section{Interpretation and next calculations}
 
-This simulation is a single cell with fixed sodium and potassium concentrations, simplified intracellular calcium dynamics, no tissue coupling, and no stochastic channel noise. It can reveal nonlinear mechanisms within its equations, but its exponents are not clinical risk estimates. The 2018 paper also studies a distinct calcium-accumulation memory mechanism in a ten Tusscher human ventricular model; that model and its calcium-memory map are not implemented on this website \cite{landaw2018}. The website now offers a finite pacing-cycle-length sweep of late APDs and completed-APD ratio, a measured APD-versus-X plot, and a measured APD return map. For the published chaos conductances with one-to-one capture, it overlays the 2018 paper's illustrative X-memory map; that curve is not fitted to the JavaScript run. These interactive scans are exploratory. Denser bifurcation diagrams with longer transients, a \texttt{tauXfac} sweep, and the full Lyapunov spectrum from repeated Jacobian or perturbation propagation with QR orthogonalization remain future calculations. The spectrum could help estimate attractor dimension; it has not been calculated here.
+This simulation is a single cell with fixed sodium and potassium concentrations, simplified intracellular calcium dynamics, no tissue coupling, and no stochastic channel noise. It can reveal nonlinear mechanisms within its equations, but its exponents are not clinical risk estimates. The 2018 paper also studies a distinct calcium-accumulation memory mechanism in a ten Tusscher human ventricular model; that model and its calcium-memory map are not implemented on this website \cite{landaw2018}. The website offers a finite pacing-cycle-length sweep of late APDs and completed-APD ratio, a measured APD-versus-X plot, and a measured APD return map. For the published chaos conductances with one-to-one capture, it shows held-out predictions from the calibrated X-memory map and offers the illustrative Hill curve as an optional reference. These interactive scans are exploratory. Denser bifurcation diagrams with longer transients, a \texttt{tauXfac} sweep, and the full Lyapunov spectrum from repeated Jacobian or perturbation propagation with QR orthogonalization remain future calculations. The spectrum could help estimate attractor dimension; it has not been calculated here.
 
 The original Luo--Rudy study reported periodic and aperiodic responses under pacing \cite{luorudy1991}. The two Landaw papers supply the published X-memory mechanism and bifurcation results for closely matching LR1-with-Ito and EAD settings \cite{landaw2017,landaw2018}. The Lyapunov values and current samples in this note are separate measurements from this repository's JavaScript simulation.
 

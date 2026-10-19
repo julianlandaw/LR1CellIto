@@ -113,6 +113,7 @@ function runSimulation(inputs, id, summaryOnly = false) {
   const apdCounter = [];
   const apdStartTimes = [];
   const apdEndTimes = [];
+  const xsRepolarized = [];
   const eadCounts = [];
   const stimulusTimes = [];
   let startApdTime = null;
@@ -150,6 +151,7 @@ function runSimulation(inputs, id, summaryOnly = false) {
       apdCounter.push(apds.length);
       apdStartTimes.push(startApdTime);
       apdEndTimes.push(timeMs);
+      xsRepolarized.push(cell.xr);
       eadCounts.push(eadCount);
       minApd = Math.min(minApd, apd);
       maxApd = Math.max(maxApd, apd);
@@ -198,7 +200,7 @@ function runSimulation(inputs, id, summaryOnly = false) {
   const hasApd = apds.length > 0;
   return {
     ts, vs, xs, icalTrace, ikrTrace, netTrace,
-    apds, xsInit, apdCounter, apdStartTimes, apdEndTimes, eadCounts, stimulusTimes,
+    apds, xsInit, xsRepolarized, apdCounter, apdStartTimes, apdEndTimes, eadCounts, stimulusTimes,
     runtimeMs: performance.now() - startedAt,
     sampleIntervalMs: sampleSteps * dt,
     inputs,

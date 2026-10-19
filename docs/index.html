@@ -509,6 +509,9 @@
     .analysis-card p { color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
     .analysis-card select { max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; background: var(--panel-alt); color: var(--text); }
     .analysis-card select:focus-visible { outline: 3px solid rgba(37,99,235,.3); }
+    .memory-option { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer; }
+    .memory-option input { width: 18px; height: 18px; accent-color: var(--primary); }
+    .memory-fit-status { font-size: .88rem; }
     .analysis-plot { width: 100%; min-height: 530px; }
     .detail-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
     .sweep-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 10px; margin: 14px 0; }
@@ -805,7 +808,10 @@
       <section class="card analysis-card" aria-labelledby="memoryHeading">
         <div class="card-body">
           <h3 id="memoryHeading">X memory and the APD return map</h3>
-          <p>The left panel pairs each complete APD with its X gate at the upstroke. The right panel shows consecutive measured APDs; the dashed diagonal marks unchanged APD. For the published chaos parameters, the violet curve is the 2018 paper's simplified X-memory map, evaluated at this run's PCL. Its parameters are approximations, so compare shapes rather than individual points.</p>
+          <p>The left panel pairs each complete APD with X at the upstroke. The right panel shows consecutive measured APDs and, for the chaos settings, held-out predictions from a map calibrated on the first 60% of beats. Its inputs are X, APD, and the measured diastolic interval; the open circles need not form a single curve. The dashed diagonal marks unchanged APD.</p>
+          <label class="memory-option" for="showPublishedMap"><input id="showPublishedMap" type="checkbox">Show the paper's illustrative Hill curve</label>
+          <p>The optional curve uses the paper's example constants at this run's PCL; APDs outside its 50–350 ms domain are clipped for comparison. The paper's closer Fig. 9 match used an interpolated measured APD-versus-X relation.</p>
+          <p id="memoryFitStatus" class="memory-fit-status" role="status">The calibrated comparison appears after a chaos run with at least 40 complete APDs.</p>
           <div id="memoryPlot" class="analysis-plot" role="group" aria-labelledby="memoryHeading"></div>
         </div>
       </section>
@@ -862,6 +868,7 @@
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
   </script>
+  <script defer src="assets/js/x-memory-fit.js"></script>
   <script defer src="assets/js/pacecell.js"></script>
 </body>
 </html>

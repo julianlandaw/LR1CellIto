@@ -64,6 +64,8 @@
       form: document.getElementById('controlsForm'),
       plot: document.getElementById('myDiv1'),
       memoryPlot: document.getElementById('memoryPlot'),
+      memoryFitStatus: document.getElementById('memoryFitStatus'),
+      showPublishedMap: document.getElementById('showPublishedMap'),
       detailPlot: document.getElementById('detailPlot'),
       apdSelect: document.getElementById('apdSelect'),
       selectedEadCount: document.getElementById('selectedEadCount'),
@@ -132,6 +134,9 @@
     ui.exportBtn.addEventListener('click', exportPlotImage);
     ui.apdSelect.addEventListener('change', () => {
       if (lastResult) renderDetailPlot(lastResult, Number(ui.apdSelect.value)).catch(console.error);
+    });
+    ui.showPublishedMap.addEventListener('change', () => {
+      if (lastResult) renderMemoryPlot(lastResult).catch(console.error);
     });
     ui.sweepBtn.addEventListener('click', startSweep);
     ui.sweepCancelBtn.addEventListener('click', () => cancelSweep('Sweep canceled.'));
@@ -453,13 +458,6 @@
       Math.abs(inputs.inafac - 1) < 1e-9 && Math.abs(inputs.ikfac - 1) < 1e-9;
   }
 
-  function publishedMemoryMap(apd, pcl) {
-    // Illustrative map parameters from Landaw and Qu, PRE 97, 042414 (2018), Fig. 10.
-    const x = 0.07 * Math.pow((350 - apd) / (apd - 50), 1 / 25);
-    const nextX = (0.6 - (0.6 - x) * Math.exp(-apd / 3000)) * Math.exp(-(pcl - apd) / 1000);
-    return 50 + 300 / (1 + Math.pow(nextX / 0.07, 25));
-  }
-
   function plotInto(element, traces, layout, filename) {
     const config = { responsive: true, displaylogo: false,
       toImageButtonOptions: { format: 'png', filename, scale: 2 } };
@@ -471,6 +469,20 @@
     const mobile = window.innerWidth <= 720;
     const apds = result.apds;
     const bound = Math.max(400, ...apds, 0);
+    const publishedEligible = isPublishedChaosSetting(result.inputs) &&
+      result.metrics.beatCount === result.metrics.deliveredStimuli;
+    ui.showPublishedMap.disabled = !publishedEligible;
+    if (!publishedEligible) ui.showPublishedMap.checked = false;
+    if (!Object.prototype.hasOwnProperty.call(result, 'memoryCalibration')) {
+      result.memoryCalibration = publishedEligible ? XMemoryMap.calibratedMap(result) : null;
+    }
+    const calibration = result.memoryCalibration;
+    ui.memoryFitStatus.textContent = calibration
+      ? `${calibration.trainingBeats} beats used for calibration; ${calibration.predictions.length} later transitions tested. ` +
+        `APD error: ${calibration.rmse.toFixed(1)} ms RMS (calibrated) versus ${calibration.publishedRmse.toFixed(1)} ms RMS ` +
+        `(illustrative Hill curve). Fitted X recovery time: ${calibration.tauRecovery.toFixed(0)} ms. ` +
+        'These local predictions are for this run and are not a parameter-independent law.'
+      : 'Calibrated comparison requires the published chaos conductances, one-to-one capture, and at least 40 complete APDs.';
     const traces = [
       { x: result.xsInit, y: apds, type: 'scatter', mode: 'markers', name: 'Measured APD vs X',
         marker: { color: '#059669', size: 7 },
@@ -482,18 +494,27 @@
         marker: { color: '#dc2626', size: 7 },
         hovertemplate: 'APD n: %{x:.2f} ms<br>APD n+1: %{y:.2f} ms<extra></extra>' },
     ];
-    if (isPublishedChaosSetting(result.inputs) &&
-        result.metrics.beatCount === result.metrics.deliveredStimuli) {
+    if (calibration) {
+      traces.push({
+        x: calibration.predictions.map((item) => item.currentApd),
+        y: calibration.predictions.map((item) => item.predictedApd),
+        type: 'scatter', mode: 'markers', name: 'Calibrated held-out prediction',
+        xaxis: 'x2', yaxis: 'y2',
+        marker: { symbol: 'circle-open', color: '#7c3aed', size: 10, line: { width: 2 } },
+        hovertemplate: 'APD n: %{x:.2f} ms<br>Predicted next APD: %{y:.2f} ms<extra></extra>',
+      });
+    }
+    if (publishedEligible && ui.showPublishedMap.checked) {
       const xs = Array.from({ length: 301 }, (_, i) => 50.1 + i * 0.999);
-      traces.push({ x: xs, y: xs.map((apd) => publishedMemoryMap(apd, result.inputs.pcl)),
-        type: 'scatter', mode: 'lines', name: 'Published X-memory approximation',
-        xaxis: 'x2', yaxis: 'y2', line: { color: '#7c3aed', width: 2.3 },
+      traces.push({ x: xs, y: xs.map((apd) => XMemoryMap.publishedReturnMap(apd, result.inputs.pcl)),
+        type: 'scatter', mode: 'lines', name: 'Illustrative Hill curve (unfitted)',
+        xaxis: 'x2', yaxis: 'y2', line: { color: '#64748b', dash: 'dot', width: 2 },
         hovertemplate: 'APD n: %{x:.1f} ms<br>Map APD n+1: %{y:.1f} ms<extra></extra>' });
     }
     const layout = {
       paper_bgcolor: '#fff', plot_bgcolor: '#fbfdff',
       height: mobile ? 790 : 530,
-      margin: { l: 64, r: 25, t: 60, b: 95 },
+      margin: { l: 64, r: 25, t: 60, b: 120 },
       showlegend: true, legend: { orientation: 'h', y: -0.22, x: 0 },
       grid: { rows: mobile ? 2 : 1, columns: mobile ? 1 : 2,
         pattern: 'independent', roworder: 'top to bottom', xgap: 0.16, ygap: 0.25 },
