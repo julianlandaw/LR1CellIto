@@ -14,7 +14,7 @@
 \maketitle
 
 \begin{abstract}
-This note analyzes the implemented, periodically paced single-cell model. It explains why the default, chaos, and early-afterdepolarization (EAD) presets differ; reports measurements from the JavaScript simulation; and estimates the largest Lyapunov exponent for each preset. The numerical results describe this model and its pacing protocol, not a whole heart.
+This note analyzes the implemented, periodically paced single-cell model in light of two published studies of memory-induced chaos using the same LR1 and fast Ito formulation. It explains why the default, chaos, and early-afterdepolarization (EAD) presets differ; reports measurements from the JavaScript simulation; and estimates the largest Lyapunov exponent for each preset. The numerical results describe this model and its pacing protocol, not a whole heart.
 \end{abstract}
 
 \section{Model and measurements}
@@ -53,13 +53,15 @@ Pacing cycle length (ms) & 500 & 378 & 1575 \\
 \end{tabular}
 \end{table}
 
+The chaos multipliers reproduce the published conductances: $g_{to,f}=0.2(1.05)=0.21$, $g_{Ca,L}=0.09(1.15)=0.1035$, and $g_{K1}=0.6047(2.2)=1.33034$ in the model's conductance units. The $x_r$ time constant is multiplied by five and the fast Ito inactivation curve is shifted by $+8$ mV. These are the parameter choices used for the memory-induced chaos results in the 2017 paper and Fig.~9 of the 2018 paper \cite{landaw2017,landaw2018}. The EAD preset likewise uses the tenfold $x_r$ time-constant change studied in those papers, with Ito absent.
+
 \section{Why the chaos preset is irregular}
 
 The model has no random input. A beat changes channel gates, calcium, and voltage, which determine the response to the next identical stimulus. If every stimulus captures and stimulus-to-upstroke delay changes little, the diastolic interval obeys the useful approximation
 \begin{equation}
  D_n\approx P-A_n,
 \end{equation}
-where $P$ is pacing cycle length and $A_n$ is APD. At $P=378$ ms, an APD near $346$ ms leaves about $32$ ms for recovery; an APD near $50$ ms leaves about $328$ ms. Slower $x_r$ evolution preserves memory of this difference. The strengthened early outward Ito, inward calcium current, and late outward $I_{K1}$ make the plateau sensitive to the resulting current balance. This feedback is the mechanistic interpretation of the observed irregularity, supported by the parameter changes below; it is not a proof of a particular route to chaos.
+where $P$ is pacing cycle length and $A_n$ is APD. At $P=378$ ms, an APD near $346$ ms leaves about $32$ ms for recovery; an APD near $50$ ms leaves about $328$ ms. Slower $x_r$ evolution preserves memory of this difference. The strengthened early outward Ito, inward calcium current, and late outward $I_{K1}$ make the plateau sensitive to the resulting current balance. A small difference in initial $x_r$ can then decide whether the action potential rapidly repolarizes as a spike or retains a phase-2 dome and lasts much longer. The papers show that fast Ito sharpens this APD response to $x_r$; the persistent memory comes mainly from slow $x_r$ recovery, not from Ito's fast gates \cite{landaw2017,landaw2018}.
 
 In the JavaScript worker, the last $100$ APDs of a $250$-beat chaos run span about $50$--$344$ ms, with $98$ distinct values after rounding to $0.1$ ms. For beats $101$--$250$, initial $x_r$ and the corresponding APD have Pearson correlation about $-0.73$: more available delayed potassium current is associated with a shorter action potential. The correlation is descriptive; APD also depends on the other state variables.
 
@@ -78,7 +80,27 @@ $P$: $378\to500$ ms & Three-beat cycle: $65.55$, $157.79$, $354.89$ ms \\
 \end{tabular}
 \end{table}
 
-One can summarize beat-to-beat evolution by a paced map $s_{n+1}=F_P(s_n)$, sampled at the same phase of every cycle. A one-variable restitution sketch would be $A_{n+1}=G(P-A_n)$, whose fixed point can lose stability when its slope has magnitude greater than one. This full model has additional gate and calcium memory, so an APD-only map cannot establish its stability. The observed fixed point, two-beat cycle, and three-beat cycle show nearby distinct attractors; they do not establish a period-doubling sequence.
+\subsection{The X-memory map}
+
+One can summarize beat-to-beat evolution by a paced map $s_{n+1}=F_P(s_n)$, sampled at the same phase of every cycle. A restitution-only sketch would set $A_{n+1}=f(P-A_n)$. For the published chaos parameter set, the papers found monotonic S1S2 restitution and a monotonic APD dependence on initial $x_r$, yet the restitution-only map missed the chaos seen in the full model \cite{landaw2017,landaw2018}. The missing quantity is the X gate carried from one beat to the next.
+
+Let $x_n$ be $x_r$ at the start of beat $n$, $A_n=g(x_n)$, and $D_n=P-A_n$ for one-to-one capture. Approximating an action potential by a depolarized plateau of duration $A_n$ followed by a resting interval $D_n$, the gate equation gives the published X-memory map
+\begin{equation}
+ x_{n+1}=\left[x_a-(x_a-x_n)e^{-A_n/\tau_a}\right]e^{-D_n/\tau_d},
+ \qquad A_n=g(x_n),\qquad D_n=P-A_n.
+\end{equation}
+Here $x_a$ is the plateau steady state, while $\tau_a$ and $\tau_d$ approximate X-gate time constants during the plateau and recovery. The formula assumes that the resting steady state of $x_r$ is approximately zero. Eliminating $x_n$ yields the APD return map
+\begin{equation}
+ A_{n+1}=H_P(A_n)
+ =g\!\left(w\!\left(g^{-1}(A_n),A_n,P-A_n\right)\right),
+\end{equation}
+where $w$ is the X update above. Even when $g$ and the measured restitution curves are monotonic, $H_P$ can be nonmonotonic because APD changes both X activation during the plateau and X recovery during the diastolic interval. A fixed point $A^*$ of this reduced map is locally stable when $|H'_P(A^*)|<1$; a crossing through $H'_P(A^*)=-1$ gives a period-doubling bifurcation. The two publications show period-doubling routes into and out of chaos for this parameter family, and the X-memory map reproduces those routes. The individual website runs and one-at-a-time changes above show local outcomes; they do not themselves reconstruct the full bifurcation diagram.
+
+For example, the 2018 analysis approximates the monotonic APD-versus-X relation by
+\begin{equation}
+ g(x)=A_{\min}+\frac{A_{\max}-A_{\min}}{1+(x/k_x)^h}.
+\end{equation}
+The Hill exponent $h$ controls the steepness of $g$ near $k_x$. A steeper negative $g'(x)$ makes a flip of the return-map slope more likely, while plateau activation, diastolic recovery, and pacing period also enter $H'_P$. Thus increasing memory alone does not guarantee chaos; the competing time scales and APD sensitivity together set stability \cite{landaw2018}.
 
 \section{Largest Lyapunov exponent}
 
@@ -113,7 +135,7 @@ For the chaos preset, $e^{0.33}\approx1.39$, so a small state perturbation grows
 
 \section{How the EAD forms}
 
-The EAD preset increases only \texttt{tauXfac} to $10$ and uses a long $1575$ ms pacing cycle. Slower $x_r$ evolution delays outward $I_{Kr}$ during a long plateau. On the twelfth recorded beat, the inward L-type calcium current strengthens enough to reverse the net current, causing a secondary voltage rise before final repolarization.
+The EAD preset increases only \texttt{tauXfac} to $10$ and uses a long $1575$ ms pacing cycle. Slower $x_r$ evolution delays outward $I_{Kr}$ during a long plateau. On the twelfth recorded beat, the inward L-type calcium current strengthens enough to reverse the net current, causing a secondary voltage rise before final repolarization. In the published LR1 analysis, this same tenfold X-gate change produces EADs and a period-doubling transition near this pacing range \cite{landaw2017,landaw2018}.
 
 \begin{table}[H]
 \centering
@@ -131,16 +153,20 @@ Cycle phase (ms) & $V$ (mV) & $I_{Ca,L}$ & $I_{Kr}$ & Net current \\
 
 The net current changes from slightly outward to inward between $725$ and $850$ ms. Because $dV/dt=-I_{net}$, that sign change accounts for the renewed depolarization. A longer APD alone would not establish an EAD; the secondary rise in voltage does.
 
+The website's EAD counter uses an explicit detection rule: at least $100$ ms after the upstroke, voltage must rise by at least $5$ mV from a trough at or below $-15$ mV. It counts only completed APDs and rearms after a $5$ mV fall. This operational count helps locate secondary rises for inspection; it is not a separate dynamical classification.
+
+The papers also report staircase-shaped APD restitution in the EAD regime: each higher step corresponds to another EAD. A restitution-only map misses the observed period-doubling sequence, while a map that retains X-gate memory reproduces it \cite{landaw2017,landaw2018}. This is a second way that the slow gate changes the outcome, alongside the directly measured current reversal above.
+
 \section{Interpretation and next calculations}
 
-This simulation is a single cell with fixed sodium and potassium concentrations, simplified intracellular calcium dynamics, no tissue coupling, and no stochastic channel noise. It can reveal nonlinear mechanisms within its equations, but its exponents are not clinical risk estimates. A useful next calculation is a bifurcation diagram of late APDs versus pacing cycle length or \texttt{tauXfac}; another is the full Lyapunov spectrum from repeated Jacobian or perturbation propagation with QR orthogonalization. Those would locate transitions and estimate attractor dimension. Neither has been calculated here.
+This simulation is a single cell with fixed sodium and potassium concentrations, simplified intracellular calcium dynamics, no tissue coupling, and no stochastic channel noise. It can reveal nonlinear mechanisms within its equations, but its exponents are not clinical risk estimates. The 2018 paper also studies a distinct calcium-accumulation memory mechanism in a ten Tusscher human ventricular model; that model and its calcium-memory map are not implemented on this website \cite{landaw2018}. The website now offers a finite pacing-cycle-length sweep of late APDs and completed-APD ratio, a measured APD-versus-X plot, and a measured APD return map. For the published chaos conductances with one-to-one capture, it overlays the 2018 paper's illustrative X-memory map; that curve is not fitted to the JavaScript run. These interactive scans are exploratory. Denser bifurcation diagrams with longer transients, a \texttt{tauXfac} sweep, and the full Lyapunov spectrum from repeated Jacobian or perturbation propagation with QR orthogonalization remain future calculations. The spectrum could help estimate attractor dimension; it has not been calculated here.
 
-The original Luo--Rudy study reported periodic and aperiodic responses under pacing \cite{luorudy1991}. Related work analyzed bifurcations and chaos associated with EADs in a different cardiac model \cite{tran2009,sato2010}. Those papers provide context; the numerical values in this note come from this repository's simulation.
+The original Luo--Rudy study reported periodic and aperiodic responses under pacing \cite{luorudy1991}. The two Landaw papers supply the published X-memory mechanism and bifurcation results for closely matching LR1-with-Ito and EAD settings \cite{landaw2017,landaw2018}. The Lyapunov values and current samples in this note are separate measurements from this repository's JavaScript simulation.
 
 \begin{thebibliography}{9}
+\bibitem{landaw2017} J. Landaw, A. Garfinkel, J. N. Weiss, and Z. Qu, ``Memory-induced chaos in cardiac excitation,'' \emph{Physical Review Letters} 118 (2017), 138101. \href{https://doi.org/10.1103/PhysRevLett.118.138101}{doi:10.1103/PhysRevLett.118.138101}.
+\bibitem{landaw2018} J. Landaw and Z. Qu, ``Memory-induced nonlinear dynamics of excitation in cardiac diseases,'' \emph{Physical Review E} 97 (2018), 042414. \href{https://doi.org/10.1103/PhysRevE.97.042414}{doi:10.1103/PhysRevE.97.042414}.
 \bibitem{luorudy1991} C. H. Luo and Y. Rudy, ``A model of the ventricular cardiac action potential. Depolarization, repolarization, and their interaction,'' \emph{Circulation Research} 68 (1991), 1501--1526. \href{https://doi.org/10.1161/01.res.68.6.1501}{doi:10.1161/01.res.68.6.1501}.
-\bibitem{tran2009} D. X. Tran et al., ``Bifurcation and chaos in a model of cardiac early afterdepolarizations,'' \emph{Physical Review Letters} 102 (2009), 258103. \href{https://doi.org/10.1103/PhysRevLett.102.258103}{doi:10.1103/PhysRevLett.102.258103}.
-\bibitem{sato2010} D. Sato et al., ``Irregularly appearing early afterdepolarizations in cardiac myocytes: random fluctuations or dynamical chaos?'' \emph{Biophysical Journal} 99 (2010), 765--773. \href{https://doi.org/10.1016/j.bpj.2010.05.019}{doi:10.1016/j.bpj.2010.05.019}.
 \end{thebibliography}
 
 \end{document}

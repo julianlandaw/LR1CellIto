@@ -433,7 +433,7 @@
 
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
       gap: 14px;
     }
 
@@ -502,6 +502,22 @@
       width: 100%;
       min-height: 960px;
     }
+
+    .research-note { margin: 14px 0 0; color: var(--muted); font-size: .86rem; line-height: 1.5; }
+    .research-note a { color: var(--primary-hover); }
+    .analysis-card h3 { margin: 0 0 6px; font-size: 1.08rem; }
+    .analysis-card p { color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
+    .analysis-card select { max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; background: var(--panel-alt); color: var(--text); }
+    .analysis-card select:focus-visible { outline: 3px solid rgba(37,99,235,.3); }
+    .analysis-plot { width: 100%; min-height: 530px; }
+    .detail-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+    .sweep-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 10px; margin: 14px 0; }
+    .sweep-controls label { font-size: .83rem; }
+    .sweep-controls input { margin-top: 5px; }
+    .sweep-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    .sweep-status { color: var(--muted); font-size: .9rem; }
+    .sweep-status.error { color: var(--danger); }
+    #sweepPlot { min-height: 540px; }
 
     .footer {
       max-width: var(--max-width);
@@ -617,6 +633,8 @@
             <button id="presetChaosBtn" class="btn-ghost" type="button" aria-pressed="false">Chaos</button>
             <button id="presetEadsBtn" class="btn-ghost" type="button" aria-pressed="false">EADs</button>
           </div>
+          <p id="presetProvenance" class="research-note">The default preset uses the baseline LR1 settings. The chaos and EAD presets follow the parameter changes studied in <a href="Landaw2017_MemoryChaos.pdf">Landaw et al. (2017)</a> and <a href="Landaw2018_MemoryChaos.pdf">Landaw and Qu (2018)</a>.</p>
+          <p id="presetDetail" class="research-note" aria-live="polite">Default: Ito off; baseline calcium and potassium conductances; X time constant ×1.</p>
           <div class="toggle-wrap">
             <label class="toggle" for="autoUpdate">
               <span class="toggle-copy"><strong>Auto-update</strong><span class="help-text">Re-run automatically after edits.</span></span>
@@ -747,13 +765,18 @@
           <div id="metricBeatNote" class="metric-subtext">Complete APDs crossing threshold</div>
         </article>
         <article class="metric-card">
+          <span class="metric-label">Detected EADs</span>
+          <div id="metricEadCount" class="metric-value">—</div>
+          <div id="metricEadNote" class="metric-subtext">Secondary rises on complete APs</div>
+        </article>
+        <article class="metric-card">
           <span class="metric-label">Preset</span>
           <div id="metricPreset" class="metric-value">Default</div>
           <div id="metricPresetNote" class="metric-subtext">Current starting configuration</div>
         </article>
       </section>
 
-      <p class="method-note">APD is the time between upward and downward crossings of −75 mV. Incomplete responses are excluded.</p>
+      <p class="method-note">APD is the time between upward and downward crossings of −75 mV. Incomplete responses are excluded. An EAD is counted when voltage rises at least 5 mV from a trough at or below −15 mV, at least 100 ms after an upstroke.</p>
 
       <section class="card">
         <div class="card-body">
@@ -771,8 +794,59 @@
             <div class="data-table-wrap">
               <table class="data-table">
                 <caption class="sr-only">Completed action potential durations and initial X values</caption>
-                <thead><tr><th scope="col">Detected APD</th><th scope="col">APD (ms)</th><th scope="col">Initial X</th></tr></thead>
+                <thead><tr><th scope="col">Detected APD</th><th scope="col">APD (ms)</th><th scope="col">Initial X</th><th scope="col">EADs</th></tr></thead>
                 <tbody id="apdTableBody"></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="card analysis-card" aria-labelledby="memoryHeading">
+        <div class="card-body">
+          <h3 id="memoryHeading">X memory and the APD return map</h3>
+          <p>The left panel pairs each complete APD with its X gate at the upstroke. The right panel shows consecutive measured APDs; the dashed diagonal marks unchanged APD. For the published chaos parameters, the violet curve is the 2018 paper's simplified X-memory map, evaluated at this run's PCL. Its parameters are approximations, so compare shapes rather than individual points.</p>
+          <div id="memoryPlot" class="analysis-plot" role="group" aria-labelledby="memoryHeading"></div>
+        </div>
+      </section>
+
+      <section class="card analysis-card" aria-labelledby="detailHeading">
+        <div class="card-body">
+          <h3 id="detailHeading">Inspect an action potential</h3>
+          <p>Voltage and currents share the same time axis. The current panel begins after the early upstroke to show the plateau balance; net ionic current excludes the stimulus. Negative net current drives depolarization. Select a complete APD to inspect its EAD count.</p>
+          <div class="detail-controls">
+            <label for="apdSelect">Detected APD</label>
+            <select id="apdSelect" aria-label="Detected APD to inspect"></select>
+            <span id="selectedEadCount" class="sweep-status" role="status"></span>
+          </div>
+          <div id="detailPlot" class="analysis-plot" role="group" aria-labelledby="detailHeading"></div>
+        </div>
+      </section>
+
+      <section class="card analysis-card" aria-labelledby="sweepHeading">
+        <div class="card-body">
+          <h3 id="sweepHeading">Pacing-cycle-length sweep</h3>
+          <p>Run the current conductance and gate settings independently at each PCL. The scatter shows complete APDs ending during the last paced cycles. The lower plot shows complete APDs per delivered stimulus; values below one indicate missed or incomplete responses. Each point includes 10 conditioning beats before the recorded beats.</p>
+          <div class="sweep-controls">
+            <label for="sweepStart">Start PCL (ms)<input id="sweepStart" type="number" min="50" max="5000" step="1" value="350" required></label>
+            <label for="sweepEnd">End PCL (ms)<input id="sweepEnd" type="number" min="50" max="5000" step="1" value="650" required></label>
+            <label for="sweepStep">Step (ms)<input id="sweepStep" type="number" min="1" max="4950" step="1" value="30" required></label>
+            <label for="sweepBeats">Beats per PCL<input id="sweepBeats" type="number" min="1" max="250" step="1" value="30" required></label>
+            <label for="sweepTail">Late cycles shown<input id="sweepTail" type="number" min="1" max="250" step="1" value="8" required></label>
+          </div>
+          <div class="sweep-actions">
+            <button id="sweepBtn" class="btn-primary" type="button">Run PCL sweep</button>
+            <button id="sweepCancelBtn" class="btn-ghost" type="button" hidden>Cancel sweep</button>
+            <span id="sweepStatus" class="sweep-status" role="status">Choose a range and run the sweep.</span>
+          </div>
+          <div id="sweepPlot" role="group" aria-labelledby="sweepHeading" hidden></div>
+          <details class="apd-details">
+            <summary>Sweep data table</summary>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <caption class="sr-only">Late APDs and completed action potential ratio by PCL</caption>
+                <thead><tr><th scope="col">PCL (ms)</th><th scope="col">Late APDs (ms)</th><th scope="col">Complete APDs / stimuli</th></tr></thead>
+                <tbody id="sweepTableBody"></tbody>
               </table>
             </div>
           </details>

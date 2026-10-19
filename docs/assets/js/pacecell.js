@@ -55,13 +55,28 @@
   let lastResult = null;
   let resultsStale = true;
   let plotQueue = Promise.resolve();
+  let sweepWorker = null;
+  let sweepRunId = 0;
+  let lastSweep = null;
 
   function init() {
     ui = {
       form: document.getElementById('controlsForm'),
       plot: document.getElementById('myDiv1'),
+      memoryPlot: document.getElementById('memoryPlot'),
+      detailPlot: document.getElementById('detailPlot'),
+      apdSelect: document.getElementById('apdSelect'),
+      selectedEadCount: document.getElementById('selectedEadCount'),
+      sweepPlot: document.getElementById('sweepPlot'),
+      sweepTableBody: document.getElementById('sweepTableBody'),
+      sweepBtn: document.getElementById('sweepBtn'),
+      sweepCancelBtn: document.getElementById('sweepCancelBtn'),
+      sweepStatus: document.getElementById('sweepStatus'),
+      sweepInputs: Object.fromEntries(['Start', 'End', 'Step', 'Beats', 'Tail'].map((name) =>
+        [name.toLowerCase(), document.getElementById(`sweep${name}`)])),
       status: document.getElementById('statusIndicator'),
       statusText: document.getElementById('statusText'),
+      presetDetail: document.getElementById('presetDetail'),
       inputError: document.getElementById('inputError'),
       resultState: document.getElementById('resultState'),
       apdTableBody: document.getElementById('apdTableBody'),
@@ -80,6 +95,8 @@
         apdRange: document.getElementById('metricApdRange'),
         beatCount: document.getElementById('metricBeatCount'),
         beatNote: document.getElementById('metricBeatNote'),
+        eadCount: document.getElementById('metricEadCount'),
+        eadNote: document.getElementById('metricEadNote'),
         preset: document.getElementById('metricPreset'),
         presetNote: document.getElementById('metricPresetNote'),
       },
@@ -105,12 +122,24 @@
 
     ui.resetBtn.addEventListener('click', () => {
       setFormValues(DEFAULTS);
+      setSweepDefaults('default');
+      markSweepStale();
       setActivePreset('default');
       setResultsStale(true);
       queueRun(true);
     });
 
     ui.exportBtn.addEventListener('click', exportPlotImage);
+    ui.apdSelect.addEventListener('change', () => {
+      if (lastResult) renderDetailPlot(lastResult, Number(ui.apdSelect.value)).catch(console.error);
+    });
+    ui.sweepBtn.addEventListener('click', startSweep);
+    ui.sweepCancelBtn.addEventListener('click', () => cancelSweep('Sweep canceled.'));
+    Object.values(ui.sweepInputs).forEach((input) => {
+      input.addEventListener('input', () => {
+        if (lastSweep && !sweepWorker) ui.sweepStatus.textContent = 'Sweep shows the previous range. Run it again to refresh.';
+      });
+    });
     ui.autoUpdate.addEventListener('change', () => {
       if (ui.autoUpdate.checked && resultsStale) queueRun(true);
     });
@@ -132,6 +161,8 @@
       if (ui.plot && window.Plotly && ui.plot.data) {
         Plotly.relayout(ui.plot, { height: plotHeight() }).catch(console.error);
       }
+      if (ui.memoryPlot.data) Plotly.relayout(ui.memoryPlot, { height: window.innerWidth <= 720 ? 790 : 530 }).catch(console.error);
+      if (ui.detailPlot.data) Plotly.relayout(ui.detailPlot, { height: window.innerWidth <= 720 ? 670 : 530 }).catch(console.error);
     }, 150));
   }
 
@@ -139,6 +170,7 @@
     clearInputError();
     detectPresetFromCurrentValues();
     setResultsStale(true);
+    markSweepStale();
 
     if (ui.autoUpdate.checked) {
       queueRun();
@@ -213,7 +245,12 @@
       const result = data.result;
       result.metrics.preset = preset;
       try {
-        plotQueue = plotQueue.catch(() => {}).then(() => renderPlots(result));
+        plotQueue = plotQueue.catch(() => {}).then(async () => {
+          await renderPlots(result);
+          await renderMemoryPlot(result);
+          populateApdSelect(result);
+          await renderDetailPlot(result, Number(ui.apdSelect.value));
+        });
         await plotQueue;
         lastResult = result;
         renderMetrics(result.metrics);
@@ -407,6 +444,144 @@
     }
   }
 
+  function isPublishedChaosSetting(inputs) {
+    return Math.abs(inputs.itofac - 1.05) < 1e-9 &&
+      Math.abs(inputs.icalfac - 1.15) < 1e-9 &&
+      Math.abs(inputs.ikifac - 2.2) < 1e-9 &&
+      Math.abs(inputs.tauXfac - 5) < 1e-9 &&
+      Math.abs(inputs.yshift - 8) < 1e-9 &&
+      Math.abs(inputs.inafac - 1) < 1e-9 && Math.abs(inputs.ikfac - 1) < 1e-9;
+  }
+
+  function publishedMemoryMap(apd, pcl) {
+    // Illustrative map parameters from Landaw and Qu, PRE 97, 042414 (2018), Fig. 10.
+    const x = 0.07 * Math.pow((350 - apd) / (apd - 50), 1 / 25);
+    const nextX = (0.6 - (0.6 - x) * Math.exp(-apd / 3000)) * Math.exp(-(pcl - apd) / 1000);
+    return 50 + 300 / (1 + Math.pow(nextX / 0.07, 25));
+  }
+
+  function plotInto(element, traces, layout, filename) {
+    const config = { responsive: true, displaylogo: false,
+      toImageButtonOptions: { format: 'png', filename, scale: 2 } };
+    return element.data ? Plotly.react(element, traces, layout, config)
+      : Plotly.newPlot(element, traces, layout, config);
+  }
+
+  function renderMemoryPlot(result) {
+    const mobile = window.innerWidth <= 720;
+    const apds = result.apds;
+    const bound = Math.max(400, ...apds, 0);
+    const traces = [
+      { x: result.xsInit, y: apds, type: 'scatter', mode: 'markers', name: 'Measured APD vs X',
+        marker: { color: '#059669', size: 7 },
+        hovertemplate: 'Initial X: %{x:.4f}<br>APD: %{y:.2f} ms<extra></extra>' },
+      { x: [0, bound], y: [0, bound], type: 'scatter', mode: 'lines', name: 'Unchanged APD',
+        xaxis: 'x2', yaxis: 'y2', line: { color: '#94a3b8', dash: 'dash', width: 1.5 }, hoverinfo: 'skip' },
+      { x: apds.slice(0, -1), y: apds.slice(1), type: 'scatter', mode: 'markers',
+        name: 'Measured next APD', xaxis: 'x2', yaxis: 'y2',
+        marker: { color: '#dc2626', size: 7 },
+        hovertemplate: 'APD n: %{x:.2f} ms<br>APD n+1: %{y:.2f} ms<extra></extra>' },
+    ];
+    if (isPublishedChaosSetting(result.inputs) &&
+        result.metrics.beatCount === result.metrics.deliveredStimuli) {
+      const xs = Array.from({ length: 301 }, (_, i) => 50.1 + i * 0.999);
+      traces.push({ x: xs, y: xs.map((apd) => publishedMemoryMap(apd, result.inputs.pcl)),
+        type: 'scatter', mode: 'lines', name: 'Published X-memory approximation',
+        xaxis: 'x2', yaxis: 'y2', line: { color: '#7c3aed', width: 2.3 },
+        hovertemplate: 'APD n: %{x:.1f} ms<br>Map APD n+1: %{y:.1f} ms<extra></extra>' });
+    }
+    const layout = {
+      paper_bgcolor: '#fff', plot_bgcolor: '#fbfdff',
+      height: mobile ? 790 : 530,
+      margin: { l: 64, r: 25, t: 60, b: 95 },
+      showlegend: true, legend: { orientation: 'h', y: -0.22, x: 0 },
+      grid: { rows: mobile ? 2 : 1, columns: mobile ? 1 : 2,
+        pattern: 'independent', roworder: 'top to bottom', xgap: 0.16, ygap: 0.25 },
+      xaxis: { title: 'Initial X', gridcolor: '#e2e8f0', range: computeXScatterRange(result.metrics.minX, result.metrics.maxX) },
+      yaxis: { title: 'APD (ms)', gridcolor: '#e2e8f0', range: computeApdRange(apds) },
+      xaxis2: { title: 'APD n (ms)', gridcolor: '#e2e8f0', range: [0, bound] },
+      yaxis2: { title: 'APD n+1 (ms)', gridcolor: '#e2e8f0', range: [0, bound] },
+    };
+    return plotInto(ui.memoryPlot, traces, layout, 'lr1-x-memory');
+  }
+
+  function populateApdSelect(result) {
+    ui.apdSelect.replaceChildren();
+    if (!result.apds.length) {
+      const option = new Option('No complete APDs', '');
+      ui.apdSelect.add(option);
+      ui.apdSelect.disabled = true;
+      return;
+    }
+    ui.apdSelect.disabled = false;
+    result.apds.forEach((apd, index) => {
+      ui.apdSelect.add(new Option(`#${index + 1} · ${apd.toFixed(1)} ms · ${result.eadCounts[index]} EADs`, String(index)));
+    });
+    const firstEad = result.eadCounts.findIndex((count) => count > 0);
+    ui.apdSelect.value = String(firstEad >= 0 ? firstEad : result.apds.length - 1);
+  }
+
+  function renderDetailPlot(result, index) {
+    if (!Number.isInteger(index) || index < 0 || index >= result.apds.length) {
+      ui.selectedEadCount.textContent = 'No complete APD to inspect.';
+      if (ui.detailPlot.data) Plotly.purge(ui.detailPlot);
+      return Promise.resolve();
+    }
+    const start = result.apdStartTimes[index];
+    const end = result.apdEndTimes[index];
+    const relativeMs = [];
+    const voltage = [];
+    const ical = [];
+    const ikr = [];
+    const net = [];
+    for (let i = 0; i < result.ts.length; i += 1) {
+      const time = result.ts[i] * 1000;
+      if (time < start - 50 || time > end + 100) continue;
+      relativeMs.push(time - start);
+      voltage.push(result.vs[i]);
+      ical.push(result.icalTrace[i]);
+      ikr.push(result.ikrTrace[i]);
+      net.push(result.netTrace[i]);
+    }
+    const count = result.eadCounts[index];
+    ui.selectedEadCount.textContent = `${count} detected EAD${count === 1 ? '' : 's'} · APD ${result.apds[index].toFixed(1)} ms`;
+    const currentStart = Math.min(100, Math.max(10, result.apds[index] * 0.2));
+    const currentTimes = [];
+    const plateauIcal = [];
+    const plateauIkr = [];
+    const plateauNet = [];
+    relativeMs.forEach((time, i) => {
+      if (time >= currentStart) {
+        currentTimes.push(time);
+        plateauIcal.push(ical[i]);
+        plateauIkr.push(ikr[i]);
+        plateauNet.push(net[i]);
+      }
+    });
+    const traces = [
+      { x: relativeMs, y: voltage, type: 'scatter', mode: 'lines', name: 'Voltage',
+        line: { color: '#2563eb', width: 2.3 },
+        hovertemplate: 'Time from upstroke: %{x:.1f} ms<br>Voltage: %{y:.2f} mV<extra></extra>' },
+      { x: currentTimes, y: plateauIcal, type: 'scatter', mode: 'lines', name: 'I Ca,L', xaxis: 'x2', yaxis: 'y2',
+        line: { color: '#dc2626', width: 2 }, hovertemplate: 'Time: %{x:.1f} ms<br>I Ca,L: %{y:.3f}<extra></extra>' },
+      { x: currentTimes, y: plateauIkr, type: 'scatter', mode: 'lines', name: 'I Kr', xaxis: 'x2', yaxis: 'y2',
+        line: { color: '#7c3aed', width: 2 }, hovertemplate: 'Time: %{x:.1f} ms<br>I Kr: %{y:.3f}<extra></extra>' },
+      { x: currentTimes, y: plateauNet, type: 'scatter', mode: 'lines', name: 'Net ionic current', xaxis: 'x2', yaxis: 'y2',
+        line: { color: '#0f766e', width: 2 }, hovertemplate: 'Time: %{x:.1f} ms<br>Net current: %{y:.3f}<extra></extra>' },
+    ];
+    const layout = {
+      paper_bgcolor: '#fff', plot_bgcolor: '#fbfdff', height: window.innerWidth <= 720 ? 670 : 530,
+      margin: { l: 65, r: 25, t: 45, b: 90 }, showlegend: true,
+      legend: { orientation: 'h', y: -0.22, x: 0 },
+      grid: { rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom', ygap: 0.18 },
+      xaxis: { title: 'Time from upstroke (ms)', gridcolor: '#e2e8f0' },
+      yaxis: { title: 'Voltage (mV)', gridcolor: '#e2e8f0' },
+      xaxis2: { title: 'Time from upstroke (ms)', gridcolor: '#e2e8f0', matches: 'x' },
+      yaxis2: { title: 'Current (model units)', gridcolor: '#e2e8f0' },
+    };
+    return plotInto(ui.detailPlot, traces, layout, 'lr1-action-potential-detail');
+  }
+
   function plotHeight() {
     return window.matchMedia('(max-width: 720px)').matches ? 1240 : 960;
   }
@@ -417,6 +592,8 @@
     ui.metrics.apdRange.textContent = formatMetric(metrics.apdRange, ' ms');
     ui.metrics.beatCount.textContent = Number.isFinite(metrics.beatCount) ? String(metrics.beatCount) : '—';
     ui.metrics.beatNote.textContent = `${metrics.deliveredStimuli} stimuli delivered; ${metrics.beatCount} complete APDs`;
+    ui.metrics.eadCount.textContent = String(metrics.totalEads);
+    ui.metrics.eadNote.textContent = `${metrics.beatsWithEads} complete APDs with EADs`;
     ui.metrics.preset.textContent = formatPresetName(metrics.preset);
 
     if (Number.isFinite(metrics.minX) && Number.isFinite(metrics.maxX)) {
@@ -430,7 +607,7 @@
     ui.apdTableBody.replaceChildren();
     result.apds.forEach((apd, index) => {
       const row = document.createElement('tr');
-      [index + 1, apd.toFixed(2), result.xsInit[index].toFixed(4)].forEach((value) => {
+      [index + 1, apd.toFixed(2), result.xsInit[index].toFixed(4), result.eadCounts[index]].forEach((value) => {
         const cell = document.createElement('td');
         cell.textContent = String(value);
         row.appendChild(cell);
@@ -508,14 +685,176 @@
     if (!preset) return;
 
     setFormValues(preset);
+    setSweepDefaults(presetName);
+    markSweepStale();
     setActivePreset(presetName);
     clearInputError();
     setResultsStale(true);
     queueRun(true);
   }
 
+  function setSweepDefaults(presetName) {
+    const presets = {
+      default: [350, 650, 30, 30, 8],
+      chaos: [330, 530, 20, 40, 10],
+      eads: [1500, 1650, 15, 24, 6],
+    };
+    const values = presets[presetName];
+    if (!values) return;
+    ['start', 'end', 'step', 'beats', 'tail'].forEach((key, index) => {
+      ui.sweepInputs[key].value = String(values[index]);
+    });
+  }
+
+  function sweepSettingsChanged(previous) {
+    const current = getInputValues(false);
+    return ['inafac', 'itofac', 'icalfac', 'ikfac', 'ikifac', 'tauXfac', 'yshift']
+      .some((key) => !Number.isFinite(current[key]) || Math.abs(current[key] - previous[key]) > 1e-9);
+  }
+
+  function markSweepStale() {
+    if (lastSweep && !sweepWorker && sweepSettingsChanged(lastSweep.inputs)) {
+      ui.sweepStatus.textContent = 'Sweep shows earlier model settings. Run it again to refresh.';
+    }
+  }
+
+  function cancelSweep(message) {
+    sweepRunId += 1;
+    if (sweepWorker) sweepWorker.terminate();
+    sweepWorker = null;
+    ui.sweepBtn.disabled = false;
+    ui.sweepCancelBtn.hidden = true;
+    ui.sweepStatus.textContent = message;
+    ui.sweepStatus.classList.remove('error');
+  }
+
+  function startSweep() {
+    let inputs;
+    try {
+      inputs = getInputValues(true);
+      clearInputError();
+    } catch (error) {
+      showInputError(error);
+      return;
+    }
+    const values = Object.fromEntries(Object.entries(ui.sweepInputs).map(([key, input]) => [key, input.valueAsNumber]));
+    const invalid = Object.entries(ui.sweepInputs).find(([, input]) => !input.checkValidity());
+    if (invalid || values.end < values.start || values.tail > values.beats ||
+        Math.floor((values.end - values.start) / values.step) + 1 > 25 ||
+        Math.floor((values.end - values.start) / values.step) + 1 < 2) {
+      ui.sweepStatus.textContent = 'Enter 2–25 PCL points and a late-cycle count no greater than beats per PCL.';
+      ui.sweepStatus.classList.add('error');
+      if (invalid) invalid[1].focus();
+      return;
+    }
+    if (sweepWorker) cancelSweep('Starting a new sweep…');
+    const id = ++sweepRunId;
+    let worker;
+    try {
+      worker = new Worker('assets/js/simulation-worker.js');
+    } catch (error) {
+      ui.sweepStatus.textContent = `Could not start sweep worker: ${error.message}`;
+      ui.sweepStatus.classList.add('error');
+      return;
+    }
+    sweepWorker = worker;
+    ui.sweepBtn.disabled = true;
+    ui.sweepCancelBtn.hidden = false;
+    ui.sweepStatus.classList.remove('error');
+    ui.sweepStatus.textContent = 'Running independent simulations…';
+    worker.onmessage = async ({ data }) => {
+      if (!data || data.id !== sweepRunId || worker !== sweepWorker) return;
+      if (data.kind === 'sweep-progress') {
+        ui.sweepStatus.textContent = `Completed ${data.completed} of ${data.total} PCL points…`;
+        return;
+      }
+      worker.terminate();
+      sweepWorker = null;
+      ui.sweepBtn.disabled = false;
+      ui.sweepCancelBtn.hidden = true;
+      if (data.kind === 'error') {
+        ui.sweepStatus.textContent = data.message;
+        ui.sweepStatus.classList.add('error');
+        return;
+      }
+      if (data.kind !== 'sweep-result') return;
+      try {
+        await renderSweepPlot(data.result);
+        lastSweep = data.result;
+        renderSweepTable(data.result);
+        const stale = sweepSettingsChanged(data.result.inputs);
+        ui.sweepStatus.textContent = `Sweep complete in ${(data.result.runtimeMs / 1000).toFixed(1)} s.${stale ? ' Settings changed during the sweep; these results use the earlier settings.' : ''}`;
+      } catch (error) {
+        ui.sweepStatus.textContent = `Could not draw sweep: ${error.message}`;
+        ui.sweepStatus.classList.add('error');
+      }
+    };
+    worker.onerror = () => {
+      if (worker !== sweepWorker) return;
+      worker.terminate();
+      sweepWorker = null;
+      ui.sweepBtn.disabled = false;
+      ui.sweepCancelBtn.hidden = true;
+      ui.sweepStatus.textContent = 'The sweep worker failed to load or run.';
+      ui.sweepStatus.classList.add('error');
+    };
+    worker.postMessage({ kind: 'sweep', id, inputs, start: values.start, end: values.end,
+      interval: values.step, beats: values.beats, tail: values.tail });
+  }
+
+  function renderSweepPlot(result) {
+    ui.sweepPlot.hidden = false;
+    const xApd = [];
+    const yApd = [];
+    result.points.forEach((point) => point.apds.forEach((apd) => {
+      xApd.push(point.pcl);
+      yApd.push(apd);
+    }));
+    const traces = [
+      { x: xApd, y: yApd, type: 'scatter', mode: 'markers', name: 'Late APDs',
+        marker: { color: '#dc2626', size: 6, opacity: 0.7 },
+        hovertemplate: 'PCL: %{x} ms<br>APD: %{y:.2f} ms<extra></extra>' },
+      { x: result.points.map((point) => point.pcl),
+        y: result.points.map((point) => point.captureRatio),
+        xaxis: 'x2', yaxis: 'y2', type: 'scatter', mode: 'lines+markers', name: 'Complete APDs / stimuli',
+        line: { color: '#059669', width: 2 }, marker: { size: 7 },
+        hovertemplate: 'PCL: %{x} ms<br>Complete APDs / stimuli: %{y:.2f}<extra></extra>' },
+    ];
+    const layout = { paper_bgcolor: '#fff', plot_bgcolor: '#fbfdff',
+      height: window.innerWidth <= 720 ? 620 : 540,
+      margin: { l: 65, r: 25, t: 35, b: 65 }, showlegend: false,
+      grid: { rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom', ygap: 0.18 },
+      xaxis: { title: 'PCL (ms)', gridcolor: '#e2e8f0', range: [result.start - result.interval, result.end + result.interval] },
+      yaxis: { title: 'Late APDs (ms)', gridcolor: '#e2e8f0' },
+      xaxis2: { title: 'PCL (ms)', gridcolor: '#e2e8f0', matches: 'x' },
+      yaxis2: { title: 'Complete APDs / stimuli', gridcolor: '#e2e8f0', range: [0, 1.1] },
+    };
+    return plotInto(ui.sweepPlot, traces, layout, 'lr1-pcl-sweep');
+  }
+
+  function renderSweepTable(result) {
+    ui.sweepTableBody.replaceChildren();
+    result.points.forEach((point) => {
+      const row = document.createElement('tr');
+      [point.pcl, point.apds.map((apd) => apd.toFixed(1)).join(', ') || '—',
+        `${point.completeApds}/${point.deliveredStimuli} (${(100 * point.captureRatio).toFixed(0)}%)`]
+        .forEach((value) => {
+          const cell = document.createElement('td');
+          cell.textContent = String(value);
+          row.appendChild(cell);
+        });
+      ui.sweepTableBody.appendChild(row);
+    });
+  }
+
   function setActivePreset(presetName) {
     currentPreset = presetName;
+    const descriptions = {
+      default: 'Default: Ito off; baseline Gsi = 0.09 and GK1 = 0.6047 mS/cm²; X time constant ×1.',
+      chaos: 'Chaos: gto,f = 0.21, Gsi = 0.1035, GK1 = 1.33034 mS/cm²; X time constant ×5; Ito inactivation shifted +8 mV.',
+      eads: 'EADs: Ito off; baseline Gsi and GK1; X time constant ×10; preset PCL 1575 ms.',
+    };
+    ui.presetDetail.textContent = descriptions[presetName] || 'Custom: values are set by the controls below.';
 
     Object.entries(ui.presetButtons).forEach(([name, button]) => {
       button.classList.remove('btn-pill-active', 'btn-secondary', 'btn-ghost');
@@ -544,6 +883,7 @@
     }
 
     currentPreset = 'custom';
+    ui.presetDetail.textContent = 'Custom: values are set by the controls below.';
     Object.entries(ui.presetButtons).forEach(([name, button]) => {
       button.classList.remove('btn-pill-active', 'btn-secondary', 'btn-ghost');
       button.classList.add(name === 'default' ? 'btn-secondary' : 'btn-ghost');
