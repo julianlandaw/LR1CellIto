@@ -509,8 +509,6 @@
     .analysis-card p { color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
     .analysis-card select { max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; background: var(--panel-alt); color: var(--text); }
     .analysis-card select:focus-visible { outline: 3px solid rgba(37,99,235,.3); }
-    .memory-option { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer; }
-    .memory-option input { width: 18px; height: 18px; accent-color: var(--primary); }
     .memory-fit-status { font-size: .88rem; }
     .analysis-plot { width: 100%; min-height: 530px; }
     .detail-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
@@ -809,9 +807,7 @@
         <div class="card-body">
           <h3 id="memoryHeading">X memory and the APD return map</h3>
           <p>The left panel pairs each complete APD with X at the upstroke. The right panel shows consecutive measured APDs and, for the chaos settings, held-out predictions from a map calibrated on the first 60% of beats. Its inputs are X, APD, and the measured diastolic interval; the open circles need not form a single curve. The dashed diagonal marks unchanged APD.</p>
-          <label class="memory-option" for="showPublishedMap"><input id="showPublishedMap" type="checkbox">Show the paper's illustrative Hill curve</label>
-          <p>The optional curve uses the paper's example constants at this run's PCL; APDs outside its 50–350 ms domain are clipped for comparison. The paper's closer Fig. 9 match used an interpolated measured APD-versus-X relation.</p>
-          <p id="memoryFitStatus" class="memory-fit-status" role="status">The calibrated comparison appears after a chaos run with at least 40 complete APDs.</p>
+          <p id="memoryFitStatus" class="memory-fit-status" role="status">Calibrated predictions appear after a chaos run with at least 40 complete APDs.</p>
           <div id="memoryPlot" class="analysis-plot" role="group" aria-labelledby="memoryHeading"></div>
         </div>
       </section>
@@ -819,7 +815,7 @@
       <section class="card analysis-card" aria-labelledby="detailHeading">
         <div class="card-body">
           <h3 id="detailHeading">Inspect an action potential</h3>
-          <p>Voltage and currents share the same time axis. The current panel begins after the early upstroke to show the plateau balance; net ionic current excludes the stimulus. Negative net current drives depolarization. Select a complete APD to inspect its EAD count.</p>
+          <p>Voltage and currents share the same time axis. The component currents, including transient outward I<sub>to</sub>, begin at the upstroke. Net ionic current begins later so the brief sodium spike does not flatten the other traces; it excludes the stimulus. Negative net current drives depolarization. Select a complete APD to inspect its EAD count.</p>
           <div class="detail-controls">
             <label for="apdSelect">Detected APD</label>
             <select id="apdSelect" aria-label="Detected APD to inspect"></select>

@@ -53,13 +53,37 @@ function checkCell(cell) {
   }
 }
 
-function runSimulation(inputs, id, summaryOnly = false) {
-  validateInputs(inputs);
-  const startedAt = performance.now();
+function makeCell(inputs) {
   const cell = new LR1CellIto();
   for (const key of ['inafac', 'itofac', 'icalfac', 'ikfac', 'ikifac', 'tauXfac', 'yshift']) {
     cell[key] = inputs[key];
   }
+  cell.cacheFixedIonConstants();
+  // Multipliers stay fixed during a website run, so inactive current gates are unobserved.
+  cell.fixedConductanceRun = true;
+  return cell;
+}
+
+function warmCellForSweep(inputs) {
+  const cell = makeCell(inputs);
+  if (cell.dt !== DT_MS) throw new Error('The model time step has changed; update the pacing schedule.');
+  const warmupSteps = Math.ceil(WARMUP_MS / cell.dt);
+  let nextCheckStep = 1000;
+  for (let i = 0; i < warmupSteps; i += 1) {
+    cell.stepdt(0);
+    if (i + 1 === nextCheckStep) {
+      checkCell(cell);
+      nextCheckStep += 1000;
+    }
+  }
+  checkCell(cell);
+  return cell;
+}
+
+function runSimulation(inputs, id, summaryOnly = false, warmState = null) {
+  validateInputs(inputs);
+  const startedAt = performance.now();
+  const cell = warmState ? Object.assign(new LR1CellIto(), warmState) : makeCell(inputs);
 
   const dt = cell.dt;
   if (dt !== DT_MS) throw new Error('The model time step has changed; update the pacing schedule.');
@@ -77,9 +101,9 @@ function runSimulation(inputs, id, summaryOnly = false) {
   );
   const totalSteps = warmupSteps + conditioningSteps + recordingSteps;
   const progressStride = Math.max(100000, Math.ceil(totalSteps / 100));
-  let stepsDone = 0;
+  let stepsDone = warmState ? warmupSteps : 0;
   let nextProgressStep = progressStride;
-  let nextCheckStep = 1000;
+  let nextCheckStep = warmState ? warmupSteps + 1000 : 1000;
 
   function step(stimulus) {
     cell.stepdt(stimulus);
@@ -94,18 +118,28 @@ function runSimulation(inputs, id, summaryOnly = false) {
     }
   }
 
-  function stimulusAt(stepNumber) {
-    return stepNumber >= firstStimStep &&
-      (stepNumber - firstStimStep) % pclSteps < stimSteps ? cell.stimulus : 0;
+  const warmupStartedAt = performance.now();
+  if (!warmState) {
+    for (let i = 0; i < warmupSteps; i += 1) step(0);
   }
-
-  for (let i = 0; i < warmupSteps; i += 1) step(0);
-  for (let i = 1; i < conditioningSteps; i += 1) step(stimulusAt(i));
+  const warmupMs = performance.now() - warmupStartedAt;
+  const conditioningStartedAt = performance.now();
+  let nextStimStep = firstStimStep;
+  let stimEndStep = 0;
+  for (let i = 1; i < conditioningSteps; i += 1) {
+    if (i === nextStimStep) {
+      stimEndStep = i + stimSteps;
+      nextStimStep += pclSteps;
+    }
+    step(i < stimEndStep ? cell.stimulus : 0);
+  }
+  const conditioningMs = performance.now() - conditioningStartedAt;
 
   const ts = summaryOnly ? [] : [0];
   const vs = summaryOnly ? [] : [cell.v];
   const xs = summaryOnly ? [] : [cell.xr];
   const icalTrace = summaryOnly ? [] : [cell.ical];
+  const itoTrace = summaryOnly ? [] : [cell.ito];
   const ikrTrace = summaryOnly ? [] : [cell.ikr];
   const netTrace = summaryOnly ? [] : [cell.ina + cell.ical + cell.ito + cell.ikr + cell.ik1 + cell.ipk + cell.ib];
   const apds = [];
@@ -126,14 +160,19 @@ function runSimulation(inputs, id, summaryOnly = false) {
   let maxApd = -Infinity;
   let minX = Infinity;
   let maxX = -Infinity;
+  nextStimStep = firstStimStep;
+  stimEndStep = 0;
+  let nextSampleStep = sampleSteps;
+  const recordingStartedAt = performance.now();
 
   for (let i = 1; i < recordingSteps; i += 1) {
     const oldV = cell.v;
-    const stimulus = stimulusAt(i);
-    if (stimulus && (i - firstStimStep) % pclSteps === 0) {
+    if (i === nextStimStep) {
+      stimEndStep = i + stimSteps;
+      nextStimStep += pclSteps;
       stimulusTimes.push(i * dt);
     }
-    step(stimulus);
+    step(i < stimEndStep ? cell.stimulus : 0);
     const newV = cell.v;
     const timeMs = i * dt;
 
@@ -178,30 +217,35 @@ function runSimulation(inputs, id, summaryOnly = false) {
       }
     }
 
-    if (!summaryOnly && i % sampleSteps === 0) {
+    if (!summaryOnly && i === nextSampleStep) {
+      nextSampleStep += sampleSteps;
       ts.push(timeMs / 1000);
       vs.push(newV);
       xs.push(cell.xr);
       icalTrace.push(cell.ical);
+      itoTrace.push(cell.ito);
       ikrTrace.push(cell.ikr);
       netTrace.push(cell.ina + cell.ical + cell.ito + cell.ikr + cell.ik1 + cell.ipk + cell.ib);
     }
   }
+  const recordingMs = performance.now() - recordingStartedAt;
 
   checkCell(cell);
-  if (!summaryOnly && (recordingSteps - 1) % sampleSteps !== 0) {
+  if (!summaryOnly && nextSampleStep - sampleSteps !== recordingSteps - 1) {
     ts.push((recordingSteps - 1) * dt / 1000);
     vs.push(cell.v);
     xs.push(cell.xr);
     icalTrace.push(cell.ical);
+    itoTrace.push(cell.ito);
     ikrTrace.push(cell.ikr);
     netTrace.push(cell.ina + cell.ical + cell.ito + cell.ikr + cell.ik1 + cell.ipk + cell.ib);
   }
   const hasApd = apds.length > 0;
   return {
-    ts, vs, xs, icalTrace, ikrTrace, netTrace,
+    ts, vs, xs, icalTrace, itoTrace, ikrTrace, netTrace,
     apds, xsInit, xsRepolarized, apdCounter, apdStartTimes, apdEndTimes, eadCounts, stimulusTimes,
     runtimeMs: performance.now() - startedAt,
+    timings: { warmupMs, conditioningMs, recordingMs },
     sampleIntervalMs: sampleSteps * dt,
     inputs,
     metrics: {
@@ -218,27 +262,36 @@ function runSimulation(inputs, id, summaryOnly = false) {
   };
 }
 
-function runSweep({ inputs, start, end, interval, beats, tail, id }) {
+function runSweep({ inputs, start, end, interval, beats, tail, id, pointIndices = null }) {
   if (![start, end, interval, beats, tail].every(Number.isInteger) ||
       start < LIMITS.pcl[0] || end > LIMITS.pcl[1] || end < start ||
       interval < 1 || beats < 1 || beats > LIMITS.beats[1] ||
       tail < 1 || tail > beats) {
     throw new Error('Enter valid whole-number PCL bounds, step, beats, and late-beat count.');
   }
-  const pclValues = [];
-  for (let pcl = start; pcl <= end; pcl += interval) pclValues.push(pcl);
-  if (pclValues.length < 2 || pclValues.length > 25) {
+  const allPclValues = [];
+  for (let pcl = start; pcl <= end; pcl += interval) allPclValues.push(pcl);
+  if (allPclValues.length < 2 || allPclValues.length > 25) {
     throw new Error('The sweep needs 2 to 25 PCL points.');
   }
-  const estimatedSteps = pclValues.reduce((sum, pcl) =>
-    sum + Math.ceil((WARMUP_MS + (CONDITIONING_BEATS + beats + 1) * pcl) / DT_MS), 0);
+  if (pointIndices !== null && (!Array.isArray(pointIndices) || !pointIndices.length ||
+      new Set(pointIndices).size !== pointIndices.length ||
+      pointIndices.some((index) => !Number.isInteger(index) || index < 0 || index >= allPclValues.length))) {
+    throw new Error('Invalid sweep point assignment.');
+  }
+  const pclValues = pointIndices === null ? allPclValues : pointIndices.map((index) => allPclValues[index]);
+  const estimatedSteps = Math.ceil(WARMUP_MS / DT_MS) + allPclValues.reduce((sum, pcl) =>
+    sum + Math.ceil((CONDITIONING_BEATS + beats + 1) * pcl / DT_MS), 0);
   if (estimatedSteps > 100000000) {
     throw new Error('This sweep is too large. Reduce the points or beats per PCL.');
   }
   const points = [];
   const startedAt = performance.now();
+  validateInputs({ ...inputs, pcl: start, beats });
+  const warmState = warmCellForSweep(inputs);
+  const warmupMs = performance.now() - startedAt;
   pclValues.forEach((pcl, index) => {
-    const result = runSimulation({ ...inputs, pcl, beats }, id, true);
+    const result = runSimulation({ ...inputs, pcl, beats }, id, true, warmState);
     const cutoffMs = result.apdEndTimes.length
       ? result.stimulusTimes[result.stimulusTimes.length - tail]
       : Infinity;
@@ -247,5 +300,6 @@ function runSweep({ inputs, start, end, interval, beats, tail, id }) {
       deliveredStimuli: tail, captureRatio: lateApds.length / tail });
     self.postMessage({ kind: 'sweep-progress', id, completed: index + 1, total: pclValues.length });
   });
-  return { points, inputs, start, end, interval, beats, tail, runtimeMs: performance.now() - startedAt };
+  return { points, inputs, start, end, interval, beats, tail,
+    runtimeMs: performance.now() - startedAt, timings: { warmupMs } };
 }

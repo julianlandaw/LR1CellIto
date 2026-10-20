@@ -75,9 +75,20 @@ class LR1CellIto {
     typedestal = 0.0;
 
     dt = 0.01;
+    fixedIonConstants = null;
+    fixedConductanceRun = false;
     
     constructor() {
         
+    }
+    cacheFixedIonConstants() {
+        // The website keeps ion concentrations fixed throughout each run.
+        this.fixedIonConstants = {
+            ena: (this.rtf/this.zna)*Math.log(this.nao/this.nai),
+            ek: (this.rtf/this.zk)*Math.log(this.ko/this.ki),
+            ekr: (this.rtf/this.zk)*Math.log((this.ko + this.prnak*this.nao)/(this.ki + this.prnak*this.nai)),
+            sqrtKo: Math.sqrt(this.ko/5.4),
+        };
     }
     iterate(st, DV_MAX) {
         this.comp_ina();
@@ -121,7 +132,6 @@ class LR1CellIto {
         }
     };
     comp_ina() {
-        const ena = (this.rtf/this.zna)*Math.log(this.nao/this.nai);
         const sodiumVoltage = this.v + 47.13;
         // The original expression is 0/0 at -47.13 mV; its limit is 3.2.
         const am = Math.abs(sodiumVoltage) < 1e-8
@@ -151,7 +161,13 @@ class LR1CellIto {
         const hss = ah*htau;
         const jss = aj*jtau;
 
-        this.ina = this.inafac*this.gna*this.m*this.m*this.m*this.h*this.j*(this.v-ena);
+        if (this.fixedConductanceRun && this.inafac === 0) {
+            this.ina = 0;
+        } else {
+            const ena = this.fixedIonConstants
+                ? this.fixedIonConstants.ena : (this.rtf/this.zna)*Math.log(this.nao/this.nai);
+            this.ina = this.inafac*this.gna*this.m*this.m*this.m*this.h*this.j*(this.v-ena);
+        }
 
         this.dm = (mss-(mss-this.m)*Math.exp(-this.dt/mtau) - this.m)/this.dt;
         this.dh = (hss-(hss-this.h)*Math.exp(-this.dt/htau) - this.h)/this.dt;
@@ -171,55 +187,62 @@ class LR1CellIto {
         //taud = TAUDFAC*taud;
         //tauf = TAUFFAC*tauf;
     
-        ical = this.ibarca*this.d*this.f*(this.v - (7.7 - 13.0287*Math.log(this.cai)));
+        ical = this.icalfac === 0 && this.fixedConductanceRun
+            ? 0 : this.ibarca*this.d*this.f*(this.v - (7.7 - 13.0287*Math.log(this.cai)));
     
         this.dd = (dss - (dss - this.d)*Math.exp(-this.dt/taud) - this.d)/this.dt;
         this.df = (fss - (fss - this.f)*Math.exp(-this.dt/tauf) - this.f)/this.dt;
         this.ical = this.icalfac*ical;
     }
     comp_ito() {
-        let ek, rt1, rt2, rt3, xtos_inf, ytos_inf, rs_inf, txs, tys, xitos = 0;
-        let xtof_inf, ytof_inf, rt4, rt5, txf, tyf, xitof = 0;
-        ek = (this.rtf/this.zk)*Math.log(this.ko/this.ki);
-        rt1 = -(this.v + 3.0 + this.zshift)/15.0;
-        rt2 = (this.v + 33.5 - this.yshift)/10.0;
-        rt3 = (this.v + 60.0)/10.0;
-        xtos_inf = 1.0/(1.0 + Math.exp(rt1));
-        ytos_inf = 1.0/(1.0 + Math.exp(rt2));
-        rs_inf = 1.0/(1.0 + Math.exp(rt2));
-        txs = 9.0/(1.0 + Math.exp(-rt1)) + 0.5;
-        tys = 3000.0/(1.0 + Math.exp(rt3)) + 30.0;
-        tys = this.tauyslowfac*tys;
-        if (tys < this.typedestal) {
-            tys = this.typedestal;  
+        const useSlow = !this.fixedConductanceRun || this.itoslowfac !== 0;
+        const useFast = !this.fixedConductanceRun || this.itofac !== 0;
+        if (!useSlow && !useFast) {
+            this.ito = 0;
+            return;
         }
-        //tys = tauyslowfac[id]*tys;
-        xitos = this.gtos*this.xtos*(this.ytos + 0.5*rs_inf)*(this.v - ek);
-        this.dxtos = (xtos_inf - (xtos_inf - this.xtos)*Math.exp(-this.dt/txs) - this.xtos)/this.dt;
-        this.dytos = (ytos_inf - (ytos_inf - this.ytos)*Math.exp(-this.dt/tys) - this.ytos)/this.dt;
-    
-        xtof_inf = xtos_inf;
-        ytof_inf = ytos_inf;
-        rt4 = -((this.v + this.zshift)/30.0)*((this.v + this.zshift)/30.0);
-        rt5 = (this.v + 33.5 - this.yshift)/10.0;
-        txf = 3.5*Math.exp(rt4) + 1.5;
-        tyf = 20.0/(1.0 + Math.exp(rt5)) + 20.0;
-        xitof = this.gtof*this.xtof*this.ytof*(this.v - ek);
-        this.dxtof = (xtof_inf - (xtof_inf - this.xtof)*Math.exp(-this.dt/txf) - this.xtof)/this.dt;
-        this.dytof = (ytof_inf - (ytof_inf - this.ytof)*Math.exp(-this.dt/tyf) - this.ytof)/this.dt;
+        const ek = this.fixedIonConstants
+            ? this.fixedIonConstants.ek : (this.rtf/this.zk)*Math.log(this.ko/this.ki);
+        const rt1 = -(this.v + 3.0 + this.zshift)/15.0;
+        const rt2 = (this.v + 33.5 - this.yshift)/10.0;
+        const activation = 1.0/(1.0 + Math.exp(rt1));
+        const inactivation = 1.0/(1.0 + Math.exp(rt2));
+        let xitos = 0;
+        let xitof = 0;
+        if (useSlow) {
+            const rt3 = (this.v + 60.0)/10.0;
+            const txs = 9.0/(1.0 + Math.exp(-rt1)) + 0.5;
+            let tys = this.tauyslowfac*(3000.0/(1.0 + Math.exp(rt3)) + 30.0);
+            if (tys < this.typedestal) tys = this.typedestal;
+            xitos = this.gtos*this.xtos*(this.ytos + 0.5*inactivation)*(this.v - ek);
+            this.dxtos = (activation - (activation - this.xtos)*Math.exp(-this.dt/txs) - this.xtos)/this.dt;
+            this.dytos = (inactivation - (inactivation - this.ytos)*Math.exp(-this.dt/tys) - this.ytos)/this.dt;
+        }
+        if (useFast) {
+            const rt4 = -((this.v + this.zshift)/30.0)*((this.v + this.zshift)/30.0);
+            const txf = 3.5*Math.exp(rt4) + 1.5;
+            const tyf = 20.0/(1.0 + Math.exp(rt2)) + 20.0;
+            xitof = this.gtof*this.xtof*this.ytof*(this.v - ek);
+            this.dxtof = (activation - (activation - this.xtof)*Math.exp(-this.dt/txf) - this.xtof)/this.dt;
+            this.dytof = (inactivation - (inactivation - this.ytof)*Math.exp(-this.dt/tyf) - this.ytof)/this.dt;
+        }
         this.ito = this.itoslowfac*xitos + this.itofac*xitof;
     }
     comp_ikr() {
-        let ekr, r, ax, bx, tauxr, xrss, ikr = 0.0;
-    
-        ekr = (this.rtf/this.zk)*Math.log((this.ko + this.prnak*this.nao)/(this.ki + this.prnak*this.nai));
-    
-        const rectifierVoltage = this.v + 77.0;
-        r = this.v > -100.0
-            ? 2.837*(Math.abs(rectifierVoltage) < 1e-8
-                ? 0.04
-                : Math.expm1(0.04*rectifierVoltage)/rectifierVoltage)/Math.exp(0.04*(this.v + 35.0))
-            : 1.0;
+        let ax, bx, tauxr, xrss;
+        if (this.fixedConductanceRun && this.ikfac === 0) {
+            this.ikr = 0;
+        } else {
+            const ekr = this.fixedIonConstants
+                ? this.fixedIonConstants.ekr : (this.rtf/this.zk)*Math.log((this.ko + this.prnak*this.nao)/(this.ki + this.prnak*this.nai));
+            const rectifierVoltage = this.v + 77.0;
+            const r = this.v > -100.0
+                ? 2.837*(Math.abs(rectifierVoltage) < 1e-8
+                    ? 0.04
+                    : Math.expm1(0.04*rectifierVoltage)/rectifierVoltage)/Math.exp(0.04*(this.v + 35.0))
+                : 1.0;
+            this.ikr = this.ikfac*this.gkr*(this.fixedIonConstants ? this.fixedIonConstants.sqrtKo : Math.sqrt(this.ko/5.4))*this.xr*r*(this.v - ekr);
+        }
     
         ax = 0.0005*Math.exp(0.083*(this.v + 50))/(1.0 + Math.exp(0.057*(this.v + 50)));
         bx = 0.0013*Math.exp(-0.06*(this.v + 20))/(1.0 + Math.exp(-0.04*(this.v + 20)));
@@ -227,24 +250,28 @@ class LR1CellIto {
         xrss = ax*tauxr; //This is the proper order, do this before tauxr is multiplied by the tauX factor
         tauxr = this.tauXfac*tauxr;
     
-        this.ikr = this.ikfac*this.gkr*Math.sqrt(this.ko/5.4)*this.xr*r*(this.v - ekr);
-    
         this.dxr = (xrss - (xrss - this.xr)*Math.exp(-this.dt/tauxr) - this.xr)/this.dt;
     }
     comp_ik1() {
+        if (this.ikifac === 0 && this.fixedConductanceRun) {
+            this.ik1 = 0;
+            return;
+        }
         let ek, ak1, bk1, xk1ss, ik1 = 0;
     
-        ek = (this.rtf/this.zk)*Math.log(this.ko/this.ki);
+        ek = this.fixedIonConstants
+            ? this.fixedIonConstants.ek : (this.rtf/this.zk)*Math.log(this.ko/this.ki);
     
         ak1 = 1.02/(1.0+Math.exp(0.2385*(this.v - ek - 59.215)));
         bk1 = (0.49124*Math.exp(0.08032*(this.v - ek+5.476))+Math.exp(0.06175*(this.v - ek - 594.31)))/(1.0+Math.exp(-0.5143*(this.v - ek+4.753)));
         xk1ss = ak1/(ak1 + bk1);
-        this.ik1 = this.ikifac*this.gk1*Math.sqrt(this.ko/5.4)*xk1ss*(this.v - ek);
+        this.ik1 = this.ikifac*this.gk1*(this.fixedIonConstants ? this.fixedIonConstants.sqrtKo : Math.sqrt(this.ko/5.4))*xk1ss*(this.v - ek);
     }
     comp_ipk() {
         let ek, ipk, kp = 0;
     
-        ek = (this.rtf/this.zk)*Math.log(this.ko/this.ki);
+        ek = this.fixedIonConstants
+            ? this.fixedIonConstants.ek : (this.rtf/this.zk)*Math.log(this.ko/this.ki);
         kp = 1.0/(1.0+Math.exp((7.488-this.v)/5.98));
         this.ipk = this.gpk*kp*(this.v - ek);
     }

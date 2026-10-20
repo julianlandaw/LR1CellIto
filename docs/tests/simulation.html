@@ -34,7 +34,7 @@
     });
   }
 
-  function sweep(inputs) {
+  function sweep(inputs, pointIndices = null) {
     return new Promise((resolve, reject) => {
       const worker = new Worker('../assets/js/simulation-worker.js');
       worker.onerror = () => { worker.terminate(); reject(new Error('Sweep worker failed to load')); };
@@ -45,7 +45,7 @@
         else resolve(data.result);
       };
       worker.postMessage({ kind: 'sweep', id: 2, inputs, start: 500, end: 510,
-        interval: 10, beats: 2, tail: 1 });
+        interval: 10, beats: 2, tail: 1, pointIndices });
     });
   }
 
@@ -64,7 +64,7 @@
     assert(result.apdStartTimes.length === result.apds.length, 'Unpaired APD starts');
     assert(result.apdEndTimes.length === result.apds.length, 'Unpaired APD ends');
     assert(result.xsRepolarized.length === result.apds.length, 'Unpaired X values at repolarization');
-    for (const trace of [result.icalTrace, result.ikrTrace, result.netTrace]) {
+    for (const trace of [result.icalTrace, result.itoTrace, result.ikrTrace, result.netTrace]) {
       assert(trace.length === result.ts.length && trace.every(Number.isFinite), 'Invalid current trace');
     }
   }
@@ -81,6 +81,7 @@
 
     const normal = await simulate(defaults);
     checkResult(normal, 10);
+    assert(normal.itoTrace.every((current) => current === 0), 'Ito should be zero when disabled');
     assert(normal.apds.length === 10, 'Default run should complete 10 APDs');
     assert(normal.metrics.totalEads === 0, 'Default run should have no EADs');
     results.push('Default pacing: pass');
@@ -92,9 +93,16 @@
       results.push(`One beat at PCL ${pcl}: pass`);
     }
 
+    for (const key of ['inafac', 'icalfac', 'ikfac', 'ikifac']) {
+      const disabled = await simulate({ ...defaults, [key]: 0, beats: 1 });
+      checkResult(disabled, 1);
+    }
+    results.push('Disabled-current configurations: pass');
+
     const chaos = await simulate({ ...defaults, inafac: 1, itofac: 1.05,
       pcl: 378, beats: 50, tauXfac: 5, icalfac: 1.15, ikifac: 2.2, yshift: 8 });
     checkResult(chaos, 50);
+    assert(chaos.itoTrace.some((current) => current > 0.1), 'Chaos preset should produce a transient outward current');
     assert(new Set(chaos.apds.map((apd) => apd.toFixed(1))).size > 10,
       'Chaos run should show varied APDs');
     const calibration = XMemoryMap.calibratedMap(chaos);
@@ -112,6 +120,13 @@
     assert(scan.points.length === 2, 'Sweep should return two PCL points');
     assert(scan.points.every((point) => point.deliveredStimuli === 1 &&
       point.captureRatio === point.completeApds), 'Sweep capture ratio is inconsistent');
+    const independent = await simulate({ ...defaults, beats: 2, pcl: 500 });
+    assert(scan.points[0].apds.length === 1 && scan.points[0].apds[0] === independent.apds.at(-1),
+      'Reused warmup changed the sweep APD');
+    const subset = await sweep(defaults, [1]);
+    assert(subset.points.length === 1 &&
+      JSON.stringify(subset.points[0]) === JSON.stringify(scan.points[1]),
+    'Split sweep differs from the single-worker sweep');
     results.push('PCL sweep: pass');
 
     let rejected = false;

@@ -55,7 +55,7 @@
   let lastResult = null;
   let resultsStale = true;
   let plotQueue = Promise.resolve();
-  let sweepWorker = null;
+  let sweepWorkers = [];
   let sweepRunId = 0;
   let lastSweep = null;
 
@@ -65,7 +65,6 @@
       plot: document.getElementById('myDiv1'),
       memoryPlot: document.getElementById('memoryPlot'),
       memoryFitStatus: document.getElementById('memoryFitStatus'),
-      showPublishedMap: document.getElementById('showPublishedMap'),
       detailPlot: document.getElementById('detailPlot'),
       apdSelect: document.getElementById('apdSelect'),
       selectedEadCount: document.getElementById('selectedEadCount'),
@@ -135,14 +134,11 @@
     ui.apdSelect.addEventListener('change', () => {
       if (lastResult) renderDetailPlot(lastResult, Number(ui.apdSelect.value)).catch(console.error);
     });
-    ui.showPublishedMap.addEventListener('change', () => {
-      if (lastResult) renderMemoryPlot(lastResult).catch(console.error);
-    });
     ui.sweepBtn.addEventListener('click', startSweep);
     ui.sweepCancelBtn.addEventListener('click', () => cancelSweep('Sweep canceled.'));
     Object.values(ui.sweepInputs).forEach((input) => {
       input.addEventListener('input', () => {
-        if (lastSweep && !sweepWorker) ui.sweepStatus.textContent = 'Sweep shows the previous range. Run it again to refresh.';
+        if (lastSweep && !sweepWorkers.length) ui.sweepStatus.textContent = 'Sweep shows the previous range. Run it again to refresh.';
       });
     });
     ui.autoUpdate.addEventListener('change', () => {
@@ -250,11 +246,14 @@
       const result = data.result;
       result.metrics.preset = preset;
       try {
+        let renderMs = 0;
         plotQueue = plotQueue.catch(() => {}).then(async () => {
+          const renderStartedAt = performance.now();
           await renderPlots(result);
           await renderMemoryPlot(result);
           populateApdSelect(result);
           await renderDetailPlot(result, Number(ui.apdSelect.value));
+          renderMs = performance.now() - renderStartedAt;
         });
         await plotQueue;
         lastResult = result;
@@ -264,8 +263,12 @@
         setResultsStale(!fresh);
         if (id !== runId) return;
         setStatus('ready', fresh
-          ? `Simulation complete in ${result.runtimeMs.toFixed(0)} ms.`
+          ? `Simulation complete: model ${(result.runtimeMs / 1000).toFixed(2)} s; analysis and charts ${(renderMs / 1000).toFixed(2)} s.`
           : 'Simulation complete. Parameters changed while it was running.');
+        ui.status.title = `Model phases: warmup ${result.timings.warmupMs.toFixed(0)} ms, ` +
+          `conditioning ${result.timings.conditioningMs.toFixed(0)} ms, ` +
+          `recording ${result.timings.recordingMs.toFixed(0)} ms. ` +
+          `Map fit ${(result.timings.fitMs || 0).toFixed(0)} ms.`;
       } catch (error) {
         if (id === runId) finishWithError(error.message || 'Plot rendering failed.');
       } finally {
@@ -469,20 +472,20 @@
     const mobile = window.innerWidth <= 720;
     const apds = result.apds;
     const bound = Math.max(400, ...apds, 0);
-    const publishedEligible = isPublishedChaosSetting(result.inputs) &&
+    const calibrationEligible = isPublishedChaosSetting(result.inputs) &&
       result.metrics.beatCount === result.metrics.deliveredStimuli;
-    ui.showPublishedMap.disabled = !publishedEligible;
-    if (!publishedEligible) ui.showPublishedMap.checked = false;
     if (!Object.prototype.hasOwnProperty.call(result, 'memoryCalibration')) {
-      result.memoryCalibration = publishedEligible ? XMemoryMap.calibratedMap(result) : null;
+      const fitStartedAt = performance.now();
+      result.memoryCalibration = calibrationEligible ? XMemoryMap.calibratedMap(result) : null;
+      result.timings.fitMs = performance.now() - fitStartedAt;
     }
     const calibration = result.memoryCalibration;
     ui.memoryFitStatus.textContent = calibration
       ? `${calibration.trainingBeats} beats used for calibration; ${calibration.predictions.length} later transitions tested. ` +
-        `APD error: ${calibration.rmse.toFixed(1)} ms RMS (calibrated) versus ${calibration.publishedRmse.toFixed(1)} ms RMS ` +
-        `(illustrative Hill curve). Fitted X recovery time: ${calibration.tauRecovery.toFixed(0)} ms. ` +
+        `Held-out APD error: ${calibration.rmse.toFixed(1)} ms RMS. ` +
+        `Fitted X recovery time: ${calibration.tauRecovery.toFixed(0)} ms. ` +
         'These local predictions are for this run and are not a parameter-independent law.'
-      : 'Calibrated comparison requires the published chaos conductances, one-to-one capture, and at least 40 complete APDs.';
+      : 'Calibrated predictions require the published chaos conductances, one-to-one capture, and at least 40 complete APDs.';
     const traces = [
       { x: result.xsInit, y: apds, type: 'scatter', mode: 'markers', name: 'Measured APD vs X',
         marker: { color: '#059669', size: 7 },
@@ -503,13 +506,6 @@
         marker: { symbol: 'circle-open', color: '#7c3aed', size: 10, line: { width: 2 } },
         hovertemplate: 'APD n: %{x:.2f} ms<br>Predicted next APD: %{y:.2f} ms<extra></extra>',
       });
-    }
-    if (publishedEligible && ui.showPublishedMap.checked) {
-      const xs = Array.from({ length: 301 }, (_, i) => 50.1 + i * 0.999);
-      traces.push({ x: xs, y: xs.map((apd) => XMemoryMap.publishedReturnMap(apd, result.inputs.pcl)),
-        type: 'scatter', mode: 'lines', name: 'Illustrative Hill curve (unfitted)',
-        xaxis: 'x2', yaxis: 'y2', line: { color: '#64748b', dash: 'dot', width: 2 },
-        hovertemplate: 'APD n: %{x:.1f} ms<br>Map APD n+1: %{y:.1f} ms<extra></extra>' });
     }
     const layout = {
       paper_bgcolor: '#fff', plot_bgcolor: '#fbfdff',
@@ -553,6 +549,7 @@
     const relativeMs = [];
     const voltage = [];
     const ical = [];
+    const ito = [];
     const ikr = [];
     const net = [];
     for (let i = 0; i < result.ts.length; i += 1) {
@@ -561,6 +558,7 @@
       relativeMs.push(time - start);
       voltage.push(result.vs[i]);
       ical.push(result.icalTrace[i]);
+      ito.push(result.itoTrace[i]);
       ikr.push(result.ikrTrace[i]);
       net.push(result.netTrace[i]);
     }
@@ -568,26 +566,30 @@
     ui.selectedEadCount.textContent = `${count} detected EAD${count === 1 ? '' : 's'} · APD ${result.apds[index].toFixed(1)} ms`;
     const currentStart = Math.min(100, Math.max(10, result.apds[index] * 0.2));
     const currentTimes = [];
-    const plateauIcal = [];
-    const plateauIkr = [];
-    const plateauNet = [];
+    const currentIcal = [];
+    const currentIto = [];
+    const currentIkr = [];
+    const currentNet = [];
     relativeMs.forEach((time, i) => {
-      if (time >= currentStart) {
+      if (time >= 0) {
         currentTimes.push(time);
-        plateauIcal.push(ical[i]);
-        plateauIkr.push(ikr[i]);
-        plateauNet.push(net[i]);
+        currentIcal.push(ical[i]);
+        currentIto.push(ito[i]);
+        currentIkr.push(ikr[i]);
+        currentNet.push(time >= currentStart ? net[i] : null);
       }
     });
     const traces = [
       { x: relativeMs, y: voltage, type: 'scatter', mode: 'lines', name: 'Voltage',
         line: { color: '#2563eb', width: 2.3 },
         hovertemplate: 'Time from upstroke: %{x:.1f} ms<br>Voltage: %{y:.2f} mV<extra></extra>' },
-      { x: currentTimes, y: plateauIcal, type: 'scatter', mode: 'lines', name: 'I Ca,L', xaxis: 'x2', yaxis: 'y2',
+      { x: currentTimes, y: currentIcal, type: 'scatter', mode: 'lines', name: 'I Ca,L', xaxis: 'x2', yaxis: 'y2',
         line: { color: '#dc2626', width: 2 }, hovertemplate: 'Time: %{x:.1f} ms<br>I Ca,L: %{y:.3f}<extra></extra>' },
-      { x: currentTimes, y: plateauIkr, type: 'scatter', mode: 'lines', name: 'I Kr', xaxis: 'x2', yaxis: 'y2',
+      { x: currentTimes, y: currentIto, type: 'scatter', mode: 'lines', name: 'I to', xaxis: 'x2', yaxis: 'y2',
+        line: { color: '#ea580c', width: 2 }, hovertemplate: 'Time: %{x:.1f} ms<br>I to: %{y:.3f}<extra></extra>' },
+      { x: currentTimes, y: currentIkr, type: 'scatter', mode: 'lines', name: 'I Kr', xaxis: 'x2', yaxis: 'y2',
         line: { color: '#7c3aed', width: 2 }, hovertemplate: 'Time: %{x:.1f} ms<br>I Kr: %{y:.3f}<extra></extra>' },
-      { x: currentTimes, y: plateauNet, type: 'scatter', mode: 'lines', name: 'Net ionic current', xaxis: 'x2', yaxis: 'y2',
+      { x: currentTimes, y: currentNet, type: 'scatter', mode: 'lines', name: 'Net ionic current', xaxis: 'x2', yaxis: 'y2',
         line: { color: '#0f766e', width: 2 }, hovertemplate: 'Time: %{x:.1f} ms<br>Net current: %{y:.3f}<extra></extra>' },
     ];
     const layout = {
@@ -734,18 +736,19 @@
   }
 
   function markSweepStale() {
-    if (lastSweep && !sweepWorker && sweepSettingsChanged(lastSweep.inputs)) {
+    if (lastSweep && !sweepWorkers.length && sweepSettingsChanged(lastSweep.inputs)) {
       ui.sweepStatus.textContent = 'Sweep shows earlier model settings. Run it again to refresh.';
     }
   }
 
   function cancelSweep(message) {
     sweepRunId += 1;
-    if (sweepWorker) sweepWorker.terminate();
-    sweepWorker = null;
+    sweepWorkers.forEach((worker) => worker.terminate());
+    sweepWorkers = [];
     ui.sweepBtn.disabled = false;
     ui.sweepCancelBtn.hidden = true;
     ui.sweepStatus.textContent = message;
+    ui.sweepStatus.title = '';
     ui.sweepStatus.classList.remove('error');
   }
 
@@ -768,59 +771,94 @@
       if (invalid) invalid[1].focus();
       return;
     }
-    if (sweepWorker) cancelSweep('Starting a new sweep…');
+    if (sweepWorkers.length) cancelSweep('Starting a new sweep…');
     const id = ++sweepRunId;
-    let worker;
+    const pointCount = Math.floor((values.end - values.start) / values.step) + 1;
+    const availableCores = Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
+    const workerCount = Math.min(3, availableCores, Math.max(1, Math.floor(pointCount / 3)));
+    const assignments = Array.from({ length: workerCount }, () => []);
+    for (let index = 0; index < pointCount; index += 1) {
+      assignments[index % workerCount].push(index);
+    }
     try {
-      worker = new Worker('assets/js/simulation-worker.js');
+      sweepWorkers = [];
+      assignments.forEach(() => sweepWorkers.push(new Worker('assets/js/simulation-worker.js')));
     } catch (error) {
+      sweepWorkers.forEach((worker) => worker.terminate());
+      sweepWorkers = [];
       ui.sweepStatus.textContent = `Could not start sweep worker: ${error.message}`;
       ui.sweepStatus.classList.add('error');
       return;
     }
-    sweepWorker = worker;
     ui.sweepBtn.disabled = true;
     ui.sweepCancelBtn.hidden = false;
     ui.sweepStatus.classList.remove('error');
-    ui.sweepStatus.textContent = 'Running independent simulations…';
-    worker.onmessage = async ({ data }) => {
-      if (!data || data.id !== sweepRunId || worker !== sweepWorker) return;
-      if (data.kind === 'sweep-progress') {
-        ui.sweepStatus.textContent = `Completed ${data.completed} of ${data.total} PCL points…`;
-        return;
-      }
-      worker.terminate();
-      sweepWorker = null;
-      ui.sweepBtn.disabled = false;
-      ui.sweepCancelBtn.hidden = true;
-      if (data.kind === 'error') {
-        ui.sweepStatus.textContent = data.message;
+    ui.sweepStatus.title = '';
+    ui.sweepStatus.textContent = `Running independent simulations with ${workerCount} ${workerCount === 1 ? 'worker' : 'workers'}…`;
+    const startedAt = performance.now();
+    const results = [];
+    let completed = 0;
+    sweepWorkers.forEach((worker, workerIndex) => {
+      worker.onmessage = async ({ data }) => {
+        if (!data || data.id !== sweepRunId || !sweepWorkers.includes(worker)) return;
+        if (data.kind === 'sweep-progress') {
+          completed += 1;
+          ui.sweepStatus.textContent = `Completed ${completed} of ${pointCount} PCL points…`;
+          return;
+        }
+        if (data.kind === 'error') {
+          cancelSweep(data.message);
+          ui.sweepStatus.classList.add('error');
+          return;
+        }
+        if (data.kind !== 'sweep-result') return;
+        worker.terminate();
+        sweepWorkers.splice(sweepWorkers.indexOf(worker), 1);
+        results.push(data.result);
+        if (sweepWorkers.length) return;
+        const result = {
+          ...results[0],
+          points: results.flatMap((part) => part.points).sort((a, b) => a.pcl - b.pcl),
+          runtimeMs: performance.now() - startedAt,
+          workerCount,
+          timings: {
+            workerCpuMs: results.reduce((sum, part) => sum + part.runtimeMs, 0),
+            warmupMs: results.reduce((sum, part) => sum + part.timings.warmupMs, 0),
+          },
+        };
+        try {
+          const chartStartedAt = performance.now();
+          await renderSweepPlot(result);
+          const chartMs = performance.now() - chartStartedAt;
+          if (id !== sweepRunId) return;
+          result.timings.chartMs = chartMs;
+          lastSweep = result;
+          renderSweepTable(result);
+          const stale = sweepSettingsChanged(result.inputs);
+          ui.sweepStatus.textContent = `Sweep complete: model ${(result.runtimeMs / 1000).toFixed(2)} s ` +
+            `with ${workerCount} ${workerCount === 1 ? 'worker' : 'workers'}; chart ${(chartMs / 1000).toFixed(2)} s.` +
+            (stale ? ' Settings changed during the sweep; these results use the earlier settings.' : '');
+          ui.sweepStatus.title = `Combined worker CPU time ${result.timings.workerCpuMs.toFixed(0)} ms, ` +
+            `including ${result.timings.warmupMs.toFixed(0)} ms warming one state per worker.`;
+        } catch (error) {
+          if (id !== sweepRunId) return;
+          ui.sweepStatus.textContent = `Could not draw sweep: ${error.message}`;
+          ui.sweepStatus.classList.add('error');
+        } finally {
+          if (id === sweepRunId) {
+            ui.sweepBtn.disabled = false;
+            ui.sweepCancelBtn.hidden = true;
+          }
+        }
+      };
+      worker.onerror = () => {
+        if (id !== sweepRunId || !sweepWorkers.includes(worker)) return;
+        cancelSweep('The sweep worker failed to load or run.');
         ui.sweepStatus.classList.add('error');
-        return;
-      }
-      if (data.kind !== 'sweep-result') return;
-      try {
-        await renderSweepPlot(data.result);
-        lastSweep = data.result;
-        renderSweepTable(data.result);
-        const stale = sweepSettingsChanged(data.result.inputs);
-        ui.sweepStatus.textContent = `Sweep complete in ${(data.result.runtimeMs / 1000).toFixed(1)} s.${stale ? ' Settings changed during the sweep; these results use the earlier settings.' : ''}`;
-      } catch (error) {
-        ui.sweepStatus.textContent = `Could not draw sweep: ${error.message}`;
-        ui.sweepStatus.classList.add('error');
-      }
-    };
-    worker.onerror = () => {
-      if (worker !== sweepWorker) return;
-      worker.terminate();
-      sweepWorker = null;
-      ui.sweepBtn.disabled = false;
-      ui.sweepCancelBtn.hidden = true;
-      ui.sweepStatus.textContent = 'The sweep worker failed to load or run.';
-      ui.sweepStatus.classList.add('error');
-    };
-    worker.postMessage({ kind: 'sweep', id, inputs, start: values.start, end: values.end,
-      interval: values.step, beats: values.beats, tail: values.tail });
+      };
+      worker.postMessage({ kind: 'sweep', id, inputs, start: values.start, end: values.end,
+        interval: values.step, beats: values.beats, tail: values.tail, pointIndices: assignments[workerIndex] });
+    });
   }
 
   function renderSweepPlot(result) {
@@ -940,6 +978,7 @@
     ui.status.classList.remove('ready', 'running', 'error');
     ui.status.classList.add(kind);
     ui.statusText.textContent = message;
+    if (kind !== 'ready') ui.status.title = '';
   }
 
   function computeApdRange(apds) {
